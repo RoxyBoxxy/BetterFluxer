@@ -1,0 +1,39 @@
+name: Build Plugin Manifest
+
+on:
+  push:
+    paths:
+      - "plugins/**/*.js"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate plugin manifest
+        run: |
+          echo '{ "plugins": [' > plugins.json
+          first=true
+          for file in plugins/*.js; do
+            name=$(basename "$file")
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo "," >> plugins.json
+            fi
+            echo -n "  { \"name\": \"$name\", \"url\": \"https://raw.githubusercontent.com/${{ github.repository }}/main/plugins/$name\" }" >> plugins.json
+          done
+          echo '] }' >> plugins.json
+
+      - name: Commit manifest
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add plugins.json
+          git commit -m "Update plugin manifest" || echo "No changes"
+          git push
