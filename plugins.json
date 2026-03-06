@@ -1,0 +1,2 @@
+{ "plugins": [
+  { "name": "test.js", "url": "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/main/plugins/test.js" }] }
