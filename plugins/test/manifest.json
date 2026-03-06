@@ -1,0 +1,9 @@
+{
+  "name": "Test Plugin",
+  "id": "test-plugin",
+  "version": "1.0.0",
+  "creator": "Roxy",
+  "description": "A simple plugin that logs a test string",
+  "main": "plugin.js",
+  "apiVersion": 1
+}
