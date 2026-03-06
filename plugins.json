@@ -1,2 +1,5 @@
 { "plugins": [
-  { "name": "test.js", "url": "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/main/plugins/test.js" }] }
+  {
+    "id": "test-plugin",
+    "manifest": "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/main/plugins/test//manifest.json"
+  }] }
