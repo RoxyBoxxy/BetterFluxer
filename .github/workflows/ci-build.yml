@@ -67,6 +67,12 @@ jobs:
       - name: Build bridge (NW zip)
         run: npm run dist:bridge:win
 
+      - name: Setup WiX CLI
+        shell: pwsh
+        run: |
+          dotnet tool update --global wix --version 6.*
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Build bridge (MSI)
         run: npm run dist:bridge:msi
 
