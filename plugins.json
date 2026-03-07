@@ -1,5 +1,0 @@
-{ "plugins": [
-  {
-    "id": "test-plugin",
-    "manifest": "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/main/plugins/test//manifest.json"
-  }] }

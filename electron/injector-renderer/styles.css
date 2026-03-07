@@ -1,0 +1,257 @@
+:root {
+  --bg: #1e1f22;
+  --bg-alt: #111214;
+  --panel: #2b2d31;
+  --panel-alt: #232428;
+  --line: #3a3d44;
+  --ink: #f2f3f5;
+  --sub: #b5bac1;
+  --muted: #8b9098;
+  --brand: #5865f2;
+  --brand-ink: #ffffff;
+  --good: #3ba55d;
+  --warn: #faa61a;
+  --danger: #ed4245;
+  --neutral: #4e5058;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: "gg sans", "Noto Sans", "Helvetica Neue", sans-serif;
+  background:
+    radial-gradient(1200px 500px at 100% -10%, rgba(88, 101, 242, 0.22), transparent 52%),
+    radial-gradient(900px 420px at -20% 110%, rgba(67, 181, 129, 0.12), transparent 48%),
+    linear-gradient(180deg, var(--bg-alt) 0%, var(--bg) 100%);
+}
+
+.app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 22px;
+  display: grid;
+  gap: 14px;
+}
+
+.hero {
+  background: linear-gradient(145deg, #2f3136 0%, #292b2f 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+}
+
+.hero p {
+  margin: 8px 0 0;
+  color: var(--sub);
+  font-size: 0.93rem;
+}
+
+.mode-switch {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #1f2124;
+  border: 1px solid #3d4048;
+}
+
+.mode-btn {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sub);
+  padding: 7px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.card {
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-alt) 100%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 1.01rem;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 11px;
+}
+
+.field span {
+  color: var(--sub);
+  font-size: 0.85rem;
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid #434650;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: #1f2124;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.25);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.9rem;
+  color: var(--sub);
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.status {
+  border: 1px solid #3b3f48;
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(18, 19, 22, 0.55);
+}
+
+.status .k {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status .v {
+  margin-top: 5px;
+  font-size: 0.93rem;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  font-weight: 800;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: filter 0.14s ease;
+}
+
+.btn:hover {
+  filter: brightness(1.08);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.btn.neutral {
+  background: var(--neutral);
+}
+
+.btn.warn {
+  background: var(--warn);
+  color: #1a1a1a;
+}
+
+.btn.good {
+  background: var(--good);
+}
+
+.btn.danger {
+  background: var(--danger);
+}
+
+.guide {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--sub);
+}
+
+.guide li {
+  margin: 6px 0;
+}
+
+.log {
+  margin: 0;
+  border: 1px solid #3e4148;
+  border-radius: 10px;
+  background: #111214;
+  color: #d7dae0;
+  padding: 10px;
+  min-height: 120px;
+  max-height: 240px;
+  overflow: auto;
+  font-size: 0.82rem;
+}
+
+body[data-mode="simple"] .advanced-only {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  .app {
+    padding: 14px;
+  }
+
+  .hero-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .mode-switch {
+    width: 100%;
+  }
+
+  .mode-btn {
+    flex: 1;
+    text-align: center;
+  }
+}

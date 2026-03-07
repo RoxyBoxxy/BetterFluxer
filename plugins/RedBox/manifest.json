@@ -1,0 +1,7 @@
+{
+  "name": "RedBox",
+  "version": "1.0.0",
+  "description": "Draws red boxes around visible UI elements.",
+  "author": "BetterFluxer",
+  "main": "index.js"
+}

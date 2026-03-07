@@ -1,0 +1,39 @@
+# Node deps
+node_modules/
+
+# Build/package output
+dist/
+release/
+out/
+
+# Runtime/temp data
+data/
+tmp_asar/
+tmp_full_asar/
+
+# Local app copy / extraction workspace
+app_do_not_edit/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Test coverage
+coverage/
+.nyc_output/

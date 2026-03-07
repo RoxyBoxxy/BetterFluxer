@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BetterFluxer Injector</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="hero">
+        <div class="hero-top">
+          <h1>BetterFluxer Injector</h1>
+          <div class="mode-switch" role="group" aria-label="Injector mode">
+            <button id="modeSimpleBtn" class="mode-btn" type="button">Simple</button>
+            <button id="modeAdvancedBtn" class="mode-btn" type="button">Advanced</button>
+          </div>
+        </div>
+        <p>Inject BetterFluxer into the installed Fluxer desktop app.</p>
+      </section>
+
+      <section class="card">
+        <h2>Target</h2>
+        <label class="field advanced-only">
+          <span>Install Root</span>
+          <input id="installRoot" type="text" placeholder="Auto-detected for your OS" />
+        </label>
+        <label class="field advanced-only">
+          <span>Version (optional, e.g. 0.0.8)</span>
+          <input id="version" type="text" placeholder="Latest if empty" />
+        </label>
+        <label class="field">
+          <span>App Path Override (optional)</span>
+          <input id="appPath" type="text" placeholder="Use this if auto-detection misses your install path" />
+        </label>
+        <div class="row">
+          <label class="checkbox">
+            <input id="closeFirst" type="checkbox" checked />
+            <span>Close Fluxer before inject/uninject</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Status</h2>
+        <div id="statusGrid" class="status-grid"></div>
+      </section>
+
+      <section class="card actions">
+        <button id="checkBtn" class="btn neutral advanced-only">Check Status</button>
+        <button id="closeBtn" class="btn warn advanced-only">Close Fluxer</button>
+        <button id="installLatestBtn" class="btn neutral" hidden>Install Latest Fluxer (Linux)</button>
+        <button id="injectBtn" class="btn good">Inject</button>
+        <button id="uninjectBtn" class="btn danger">Uninject</button>
+      </section>
+
+      <section class="card advanced-only">
+        <h2>Guide</h2>
+        <ol class="guide">
+          <li>Close Fluxer Desktop (or leave auto-close enabled).</li>
+          <li>Verify target path and version in this window.</li>
+          <li>Press <strong>Inject</strong>.</li>
+          <li>Reopen Fluxer and confirm BetterFluxer plugins are active.</li>
+          <li>After Fluxer updates to a new <code>app-x.y.z</code>, inject again.</li>
+        </ol>
+      </section>
+
+      <section class="card">
+        <h2>Log</h2>
+        <pre id="log" class="log"></pre>
+      </section>
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+  </html>

@@ -1,0 +1,7 @@
+{
+  "name": "DisplaySourceFix",
+  "version": "1.0.0",
+  "description": "Retries display source selection with a valid fallback when stale source IDs are used.",
+  "author": "BetterFluxer",
+  "main": "index.js"
+}
