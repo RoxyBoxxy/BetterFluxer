@@ -5,28 +5,24 @@
   "main": "electron/injector-main.js",
   "scripts": {
     "start-o": "node src/index.js",
-    "start": "cd nw && nw .",
+    "start": "cd nw && npx nw .",
+    "bridge:app": "cd bridge-nw && npx nw .",
     "test": "node --test",
-    "electron:start": "node scripts/electron-launcher.js electron/main.js",
-    "electron:start:url": "node scripts/electron-launcher.js electron/main.js --url=",
-    "electron:gui": "node scripts/electron-launcher.js electron/injector-main.js",
-    "dist:win": "node scripts/package-win.js",
-    "dist:win:onefile": "node scripts/package-win-onefile.js",
-    "dist:linux": "node scripts/package-linux.js",
-<<<<<<< HEAD
     "bridge:start": "node scripts/local-bridge.js",
+    "bridge:install": "node scripts/local-bridge.js --install",
+    "bridge:uninstall": "node scripts/local-bridge.js --uninstall",
     "bridge:startup:install": "node scripts/local-bridge.js --startup-install",
     "bridge:startup:remove": "node scripts/local-bridge.js --startup-remove",
-    "dist:win:builder": "electron-builder --win nsis portable",
-    "dist:win:nsis": "electron-builder --win nsis",
-    "dist:win:portable": "electron-builder --win portable",
-    "dist:dir": "electron-builder --dir",
-=======
+    "dist:win": "node scripts/package-win.js",
+    "dist:bridge:win": "node scripts/package-bridge-win.js",
+    "dist:bridge:msi": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-bridge-msi.ps1",
+    "dist:win:onefile": "node scripts/package-win-onefile.js",
+    "dist:linux": "node scripts/package-linux.js",
+    "dist:bridge:linux": "node scripts/package-bridge-linux.js",
     "dist:win:builder": "node scripts/package-win.js",
     "dist:win:nsis": "node scripts/package-win.js",
     "dist:win:portable": "node scripts/package-win.js",
     "dist:dir": "node scripts/package-linux.js",
->>>>>>> 0b735af (added Build scripts for NW.js)
     "inject": "node scripts/inject-fluxer.js",
     "uninject": "node scripts/uninject-fluxer.js"
   },
@@ -37,44 +33,11 @@
   "devDependencies": {
     "@electron/packager": "^18.3.6",
     "electron": "^36.9.5",
-    "electron-builder": "^24.13.3",
+    "nw": "^0.91.0-sdk",
     "nw-builder": "^4.17.5",
     "pkg": "^5.8.1"
   },
   "dependencies": {
     "undici": "^7.22.0"
-  },
-  "build": {
-    "appId": "com.roxyboxxy.betterfluxer",
-    "productName": "BetterFluxer Injector",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "electron/**/*",
-      "scripts/**/*",
-      "plugins/**/*",
-      "src/**/*",
-      "docs/**/*",
-      "package.json",
-      "README.md"
-    ],
-    "extraMetadata": {
-      "main": "electron/injector-main.js"
-    },
-    "asar": true,
-    "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
   }
 }

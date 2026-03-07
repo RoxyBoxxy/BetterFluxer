@@ -1,0 +1,11 @@
+{
+  "name": "betterfluxer-bridge-app",
+  "main": "index.html",
+  "window": {
+    "title": "BetterFluxer Bridge",
+    "width": 980,
+    "height": 700,
+    "resizable": true,
+    "icon": "assets/betterfluxertransicon.png"
+  }
+}

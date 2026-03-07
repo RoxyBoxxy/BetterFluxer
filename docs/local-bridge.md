@@ -8,12 +8,35 @@ Runs a localhost-only companion service for plugins to fetch remote data safely.
 npm run bridge:start
 ```
 
+NW.js Bridge UI:
+
+```bash
+npm run bridge:app
+```
+
 Server:
 
 - Host: `127.0.0.1`
 - Port: `21864` (override with `BF_BRIDGE_PORT`)
 
 ## Windows Startup / Hidden Mode
+
+Cross-platform install entrypoint:
+
+```bash
+npm run bridge:install
+```
+
+Cross-platform uninstall:
+
+```bash
+npm run bridge:uninstall
+```
+
+Behavior:
+
+- Windows: installs/removes startup launcher (same as startup-install/remove)
+- Linux: writes/removes `~/.local/bin/betterfluxer-bridge` and `~/.config/autostart/betterfluxer-bridge.desktop`
 
 Install startup (Windows only):
 
@@ -27,10 +50,10 @@ Remove startup:
 npm run bridge:startup:remove
 ```
 
-The startup entry launches bridge hidden using a Startup-folder VBS launcher.
+The startup entry launches bridge hidden using the per-user Run registry key (`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`), not VBS.
 For packaged EXE builds, startup install copies bridge to:
 
-`%APPDATA%\BetterFluxer\bridge\BetterFluxerBridge.exe`
+`%LOCALAPPDATA%\BetterFluxer\bridge\BetterFluxerBridge.exe`
 
 Manual hidden run:
 

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="BetterFluxer Bridge"
+    Manufacturer="BetterFluxer"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="9E61D56D-0F7E-4E4F-BB15-8F87BB4D8CB7"
+    InstallerVersion="500"
+    Scope="perUser">
+
+    <SummaryInformation Description="BetterFluxer Bridge (NW.js)" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BetterFluxer Bridge is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Feature Id="MainFeature" Title="BetterFluxer Bridge" Level="1">
+      <ComponentGroupRef Id="BridgeFiles" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="BetterFluxerRoot" Name="BetterFluxer">
+        <Directory Id="BridgeInstallDir" Name="bridge" />
+      </Directory>
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="BridgeFiles" Directory="BridgeInstallDir">
+      <Files Include="$(var.BridgeSourceDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>

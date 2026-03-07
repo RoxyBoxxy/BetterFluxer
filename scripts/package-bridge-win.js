@@ -23,48 +23,48 @@ function loadNwBuilder() {
   }
 }
 
-function createStage(root, outDir) {
-  const stageRoot = path.join(root, ".tmp-nw-stage-win");
+function createStage(root) {
+  const stageRoot = path.join(root, ".tmp-nw-bridge-stage-win");
   ensureCleanDir(stageRoot);
 
-  copyRecursive(path.join(root, "nw"), path.join(stageRoot, "nw"));
   copyRecursive(path.join(root, "bridge-nw"), path.join(stageRoot, "bridge-nw"));
   copyRecursive(path.join(root, "scripts"), path.join(stageRoot, "scripts"));
-  copyRecursive(path.join(root, "plugins"), path.join(stageRoot, "plugins"));
-  copyRecursive(path.join(root, "src"), path.join(stageRoot, "src"));
   copyRecursive(path.join(root, "docs"), path.join(stageRoot, "docs"));
-  if (fs.existsSync(path.join(root, "bridge"))) {
-    copyRecursive(path.join(root, "bridge"), path.join(stageRoot, "bridge"));
-  }
 
   const rootReadme = path.join(root, "README.md");
   if (fs.existsSync(rootReadme)) {
     fs.copyFileSync(rootReadme, path.join(stageRoot, "README.md"));
   }
 
-  const nwPackagePath = path.join(stageRoot, "nw", "package.json");
-  const nwPackage = JSON.parse(fs.readFileSync(nwPackagePath, "utf8"));
+  const bridgePkgPath = path.join(stageRoot, "bridge-nw", "package.json");
+  const bridgePkg = JSON.parse(fs.readFileSync(bridgePkgPath, "utf8"));
   let appVersion = "1.0.0";
   try {
-    const rootPackage = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-    if (rootPackage && typeof rootPackage.version === "string" && rootPackage.version.trim()) {
-      appVersion = rootPackage.version.trim();
+    const rootPkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    if (rootPkg && typeof rootPkg.version === "string" && rootPkg.version.trim()) {
+      appVersion = rootPkg.version.trim();
     }
   } catch (_) {}
+
   const iconPath =
-    nwPackage &&
-    nwPackage.window &&
-    typeof nwPackage.window.icon === "string" &&
-    nwPackage.window.icon.trim()
-      ? nwPackage.window.icon.trim()
+    bridgePkg &&
+    bridgePkg.window &&
+    typeof bridgePkg.window.icon === "string" &&
+    bridgePkg.window.icon.trim()
+      ? bridgePkg.window.icon.trim()
       : "";
+
   const stagedPackage = {
-    ...nwPackage,
-    main: "nw/index.html",
-    version: typeof nwPackage.version === "string" && nwPackage.version.trim() ? nwPackage.version.trim() : appVersion,
+    ...bridgePkg,
+    name: bridgePkg.name || "betterfluxer-bridge",
+    version: typeof bridgePkg.version === "string" && bridgePkg.version.trim() ? bridgePkg.version.trim() : appVersion,
+    main: "bridge-nw/index.html",
     window: {
-      ...(nwPackage.window || {}),
-      icon: iconPath && !iconPath.startsWith("nw/") ? `nw/${iconPath}` : iconPath || "nw/assets/betterfluxertransicon.png"
+      ...(bridgePkg.window || {}),
+      icon:
+        iconPath && !iconPath.startsWith("bridge-nw/")
+          ? `bridge-nw/${iconPath}`
+          : iconPath || "bridge-nw/assets/betterfluxertransicon.png"
     }
   };
   fs.writeFileSync(path.join(stageRoot, "package.json"), `${JSON.stringify(stagedPackage, null, 2)}\n`, "utf8");
@@ -77,15 +77,15 @@ async function main() {
   const outDir = path.join(root, "dist");
   fs.mkdirSync(outDir, { recursive: true });
 
-  const stageRoot = createStage(root, outDir);
+  const stageRoot = createStage(root);
   const nwbuild = loadNwBuilder();
   const prevCwd = process.cwd();
   try {
     process.chdir(stageRoot);
     await nwbuild({
       mode: "build",
-      srcDir: "./**/*",
-      outDir: path.join(outDir, "nw-win64"),
+      srcDir: ["./**/*", "./bridge-nw/.env"],
+      outDir: path.join(outDir, "nw-bridge-win64"),
       platform: "win",
       arch: "x64",
       zip: true,
@@ -95,10 +95,13 @@ async function main() {
     process.chdir(prevCwd);
   }
   fs.rmSync(stageRoot, { recursive: true, force: true });
-  console.log("[BetterFluxer] NW.js Windows build complete.");
+  console.log("[BetterFluxer Bridge] NW.js Windows build complete.");
 }
 
 main().catch((error) => {
-  console.error("[BetterFluxer] NW.js Windows packaging failed:", error && error.message ? error.message : error);
+  console.error(
+    "[BetterFluxer Bridge] NW.js Windows packaging failed:",
+    error && error.message ? error.message : error
+  );
   process.exitCode = 1;
 });
