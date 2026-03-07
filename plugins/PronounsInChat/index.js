@@ -61,7 +61,6 @@ module.exports = class PronounsInChatPlugin {
     this.authBlockedUntil = 0;
     this.authWarned = false;
     this.remoteAuthWarned = false;
-    this.remoteFetchDisabled = false;
     this.retryTimers = new WeakMap();
     this.retryDelayMs = 30000;
     this.globalUserKeySuffix = "*";
@@ -110,7 +109,6 @@ module.exports = class PronounsInChatPlugin {
     this.authBlockedUntil = 0;
     this.authWarned = false;
     this.remoteAuthWarned = false;
-    this.remoteFetchDisabled = false;
     this.clearRetryTimers();
     this.uninstallProfileCapture();
     this.flushPersistentCaches(true);
@@ -157,14 +155,32 @@ module.exports = class PronounsInChatPlugin {
 
   scan(root) {
     if (!root || !root.querySelectorAll) return;
-    const spans = root.querySelectorAll("span[data-user-id][data-guild-id]");
+    const spans = root.querySelectorAll("span[data-user-id], span[class*='MemberListItem'][class*='name']");
     for (const span of spans) {
       const cls = String(span.className || "").toLowerCase();
-      if (!cls.includes("message") || !cls.includes("username")) continue;
+      const isMessageUsername = cls.includes("message") && cls.includes("username");
+      const isMemberListName = cls.includes("memberlistitem") && cls.includes("name");
+      if (!isMessageUsername && !isMemberListName) continue;
       if (span.getAttribute(this.scanAttr) === "1") continue;
       span.setAttribute(this.scanAttr, "1");
       this.attachPronouns(span);
     }
+  }
+
+  resolveUserId(span) {
+    const direct = span?.getAttribute?.("data-user-id");
+    if (direct) return String(direct);
+
+    const attrCarrier = span?.closest?.("[data-user-id]");
+    const fromCarrier = attrCarrier?.getAttribute?.("data-user-id");
+    if (fromCarrier) return String(fromCarrier);
+
+    const idCarrier = span?.closest?.("[id]");
+    const rawId = String(idCarrier?.id || "");
+    const idMatch = rawId.match(/(\d{16,21})/);
+    if (idMatch && idMatch[1]) return String(idMatch[1]);
+
+    return "";
   }
 
   getKey(userId, guildId) {
@@ -403,6 +419,7 @@ module.exports = class PronounsInChatPlugin {
     const win = this.api.app.getWindow?.();
     const path = String(win?.location?.pathname || "");
     const match = path.match(/\/channels\/(\d+)\//);
+    if (path.includes("/channels/@me/")) return "";
     return match && match[1] ? String(match[1]) : "";
   }
 
@@ -470,7 +487,6 @@ module.exports = class PronounsInChatPlugin {
     const userFallbackKey = this.getKey(userId, this.globalUserKeySuffix);
     if (this.cache.has(userFallbackKey)) return this.cache.get(userFallbackKey);
     if (this.pending.has(key)) return this.pending.get(key);
-    if (this.remoteFetchDisabled) return "";
     if (Date.now() < this.authBlockedUntil) return "";
 
     const win = this.api.app.getWindow?.();
@@ -505,9 +521,8 @@ module.exports = class PronounsInChatPlugin {
           if (res.status === 401 || res.status === 403) {
             sawAuthError = true;
             this.authBlockedUntil = Date.now() + 30000;
-            this.remoteFetchDisabled = true;
             if (!this.remoteAuthWarned) {
-              this.api.logger.warn("PronounsInChat: profile API unauthorized; disabling remote fetch to prevent spam.");
+              this.api.logger.warn("PronounsInChat: profile API unauthorized; backing off remote fetch and retrying later.");
               this.remoteAuthWarned = true;
             }
             break;
@@ -543,8 +558,9 @@ module.exports = class PronounsInChatPlugin {
   findOrCreateBadge(span) {
     const existing = span.nextElementSibling;
     if (existing && existing.getAttribute?.(this.badgeAttr) === "1") return existing;
+    const userId = this.resolveUserId(span);
     const siblingExisting = span.parentElement?.querySelector?.(
-      `.${this.badgeClass}[${this.badgeAttr}='1'][data-bf-user-id='${String(span.getAttribute("data-user-id") || "")}']`
+      `.${this.badgeClass}[${this.badgeAttr}='1'][data-bf-user-id='${String(userId || "")}']`
     );
     if (siblingExisting) return siblingExisting;
     const doc = this.api.app.getDocument?.();
@@ -553,22 +569,27 @@ module.exports = class PronounsInChatPlugin {
     const badge = doc.createElement("span");
     badge.className = this.badgeClass;
     badge.setAttribute(this.badgeAttr, "1");
-    badge.setAttribute("data-bf-user-id", String(span.getAttribute("data-user-id") || ""));
+    badge.setAttribute("data-bf-user-id", String(userId || ""));
+    const className = String(span.className || "").toLowerCase();
+    const isMessageUsername = className.includes("message") && className.includes("username");
 
-    const sep = doc.createElement("span");
-    sep.className = "betterfluxer-pronouns-sep";
-    sep.setAttribute("aria-hidden", "true");
-    sep.textContent = " — ";
-    const timeSep =
-      span.parentElement?.querySelector?.("time span[class*='authorDashSeparator']") ||
-      span.parentElement?.querySelector?.("time span[aria-hidden='true'][class*='DashSeparator']");
-    if (timeSep && timeSep.className) {
-      sep.className = String(timeSep.className);
+    let sep = null;
+    if (isMessageUsername) {
+      sep = doc.createElement("span");
+      sep.className = "betterfluxer-pronouns-sep";
+      sep.setAttribute("aria-hidden", "true");
+      sep.textContent = " — ";
+      const timeSep =
+        span.parentElement?.querySelector?.("time span[class*='authorDashSeparator']") ||
+        span.parentElement?.querySelector?.("time span[aria-hidden='true'][class*='DashSeparator']");
+      if (timeSep && timeSep.className) {
+        sep.className = String(timeSep.className);
+      }
     }
 
     const text = doc.createElement("span");
     text.className = "betterfluxer-pronouns-text";
-    badge.appendChild(sep);
+    if (sep) badge.appendChild(sep);
     badge.appendChild(text);
 
     const timeEl = span.parentElement?.querySelector?.("time");
@@ -587,14 +608,13 @@ module.exports = class PronounsInChatPlugin {
   }
 
   async attachPronouns(span) {
-    const userId = span.getAttribute("data-user-id");
+    const userId = this.resolveUserId(span);
     const guildId = this.resolveGuildId(span);
     if (!userId) return;
 
     const pronouns = await this.fetchPronouns(userId, guildId);
     if (!span.isConnected) return;
     if (!pronouns) {
-      if (this.remoteFetchDisabled) return;
       this.scheduleRetry(span);
       return;
     }

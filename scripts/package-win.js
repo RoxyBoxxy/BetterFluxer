@@ -73,22 +73,32 @@ async function main() {
   const outDir = path.join(root, "dist");
   fs.mkdirSync(outDir, { recursive: true });
 
-  const stageRoot = createStage(root, outDir);
-  const nwbuild = loadNwBuilder();
-  const prevCwd = process.cwd();
-  try {
-    process.chdir(stageRoot);
-    await nwbuild({
-      mode: "build",
-      srcDir: "./**/*",
-      outDir: path.join(outDir, "nw-win64"),
-      platform: "win",
-      arch: "x64",
-      zip: true,
-      logLevel: "info"
-    });
-  } finally {
-    process.chdir(prevCwd);
+  const ignorePatterns = [
+    /(^|[\\/])\.git([\\/]|$)/,
+    /(^|[\\/])dist([\\/]|$)/,
+    /(^|[\\/])tmp_asar([\\/]|$)/,
+    /(^|[\\/])tmp_full_asar([\\/]|$)/,
+    /(^|[\\/])app_do_not_edit([\\/]|$)/,
+    /(^|[\\/])data([\\/]|$)/,
+    /(^|[\\/])test([\\/]|$)/
+  ];
+
+  const appPaths = await packager({
+    dir: root,
+    out: outDir,
+    overwrite: true,
+    prune: true,
+    platform: "win32",
+    arch: "x64",
+    asar: true,
+    name: "BetterFluxer",
+    executableName: "BetterFluxerInjector",
+    ignore: (fullPath) => ignorePatterns.some((pattern) => pattern.test(fullPath))
+  });
+
+  for (const appPath of appPaths) {
+    console.log(`[BetterFluxer] Packaged: ${appPath}`);
+    console.log(`[BetterFluxer] EXE: ${path.join(appPath, "BetterFluxerInjector.exe")}`);
   }
   fs.rmSync(stageRoot, { recursive: true, force: true });
   console.log("[BetterFluxer] NW.js Windows build complete.");

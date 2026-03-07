@@ -61,11 +61,25 @@ jobs:
       - name: Build Windows package
         run: npm run dist:win
 
+      - name: Build Bridge EXE
+        run: npx --yes pkg@5.8.1 scripts/local-bridge.js --targets node18-win-x64 --output dist/bridge/BetterFluxerBridge.exe
+
+      - name: List dist contents (Windows)
+        shell: pwsh
+        run: Get-ChildItem -Recurse dist | Select-Object FullName
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: betterfluxer-windows-x64
-          path: dist/BetterFluxer Injector-win32-x64/**
+          path: dist/*win32-x64/**
+          if-no-files-found: error
+
+      - name: Upload Bridge EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: betterfluxer-bridge-windows-exe
+          path: dist/bridge/BetterFluxerBridge.exe
           if-no-files-found: error
 
   build-linux:
@@ -88,11 +102,14 @@ jobs:
       - name: Build Linux package
         run: npm run dist:linux
 
+      - name: List dist contents (Linux)
+        run: find dist -maxdepth 4 -type f | sort
+
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
           name: betterfluxer-linux-x64
-          path: dist/BetterFluxer Injector-linux-x64/**
+          path: dist/*linux-x64/**
           if-no-files-found: error
 
   publish-release:
@@ -115,6 +132,12 @@ jobs:
           name: betterfluxer-linux-x64
           path: release-assets/linux
 
+      - name: Download Bridge EXE artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: betterfluxer-bridge-windows-exe
+          path: release-assets/bridge
+
       - name: Create archives
         run: |
           cd release-assets
@@ -130,3 +153,4 @@ jobs:
           files: |
             release-assets/betterfluxer-windows-x64.zip
             release-assets/betterfluxer-linux-x64.tar.gz
+            release-assets/bridge/BetterFluxerBridge.exe

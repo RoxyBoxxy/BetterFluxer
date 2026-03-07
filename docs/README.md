@@ -7,3 +7,4 @@
 - [UI Classes](./ui-classes.md)
 - [Injector CLI](./injector-cli.md)
 - [Settings Category Skeleton](./settings-category-skeleton.md)
+- [Local Bridge](./local-bridge.md)
