@@ -163,6 +163,7 @@ function canWriteToAppPath(appPath) {
   }
 }
 
+
 async function getPosixFluxerPids() {
   const hasPgrep = await runOptionalExec("pgrep", ["-V"]);
   if (!hasPgrep) return [];
@@ -723,7 +724,8 @@ async function runInject(options = {}) {
   const mainPatchResult = patchMainIpcHandlers(paths.mainIpcHandlersPath, paths.backupMainIpcHandlersPath);
   const patchResult = patchPreload(paths.preloadPath, paths.backupPreloadPath, inlinePlugins, {
     enableIpcBridge: mainPatchResult && mainPatchResult.skipped !== true,
-    storeIndexSnapshot
+    storeIndexSnapshot,
+    customSplashIconDataUrl: String(options.splashIconBase64 || "").trim()
   });
   const status = await readStatus(target);
   return {

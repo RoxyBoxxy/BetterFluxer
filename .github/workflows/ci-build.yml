@@ -62,7 +62,7 @@ jobs:
         run: npm run dist:win
 
       - name: Build Bridge EXE
-        run: npx --yes pkg@5.8.1 scripts/local-bridge.js --targets node18-win-x64 --output dist/bridge/BetterFluxerBridge.exe
+        run: npx --yes pkg@5.8.1 bridge/index.js --targets node18-win-x64 --output dist/bridge/BetterFluxerBridge.exe
 
       - name: List dist contents (Windows)
         shell: pwsh

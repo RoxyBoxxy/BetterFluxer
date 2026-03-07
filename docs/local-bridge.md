@@ -35,7 +35,7 @@ For packaged EXE builds, startup install copies bridge to:
 Manual hidden run:
 
 ```bash
-node scripts/local-bridge.js --hidden
+node bridge/index.js --hidden
 ```
 
 On first start it generates a token in:
@@ -75,23 +75,20 @@ Fetches an allowlisted URL and returns JSON payload.
 
 ### `GET /windows/media`
 
-Windows-only endpoint that returns current Global System Media Transport Controls (GSMTC) session metadata.
-
-Auth:
-
-- `X-BetterFluxer-Token: <token>`
-- `Authorization: Bearer <token>`
-- `?token=<token>` (for clients that cannot set headers)
+Removed. Bridge no longer uses Windows media APIs.
+Use `GET /now-playing` (Discord RPC + Tuna sources).
 
 ### `GET /now-playing`
 
 Universal now-playing endpoint with platform adapters:
 
-- Windows: GSMTC
+- Windows: installed/running app detection + Tuna JSON
 - Linux: MPRIS via `playerctl`
 - macOS: AppleScript (`Spotify`/`Music`)
 - Discord RPC pipes: captures `SET_ACTIVITY`/`CLEAR_ACTIVITY` from apps connecting to `discord-ipc-*` (when bridge can bind those pipes)
   - Game activities (`type: 0`) are tagged as `kind: "game"` for BetterFluxer status formatting.
+- Optional master relay over WebSocket (`BF_MASTER_WS_URL`)
+- Optional bridge-to-bridge P2P gossip (`BF_P2P_ENABLED=1`)
 
 Windows fallback:
 
@@ -119,7 +116,55 @@ When bridge runs in a terminal, you can type:
 - `watch off`
 - `watch status`
 - `rpc status`
+- `master status`
+- `p2p status`
 - `tuna path`
+
+`p2p status` now shows:
+
+- connected peers count
+- per-peer bytes in/out
+- total bytes in/out
+- rolling 1-minute average bandwidth (B/s in/out)
+
+## P2P Bridge Mesh (TCP Gossip)
+
+Enable:
+
+`BF_P2P_ENABLED=1`
+
+Optional settings:
+
+- `BF_P2P_HOST` (default `0.0.0.0`)
+- `BF_P2P_PORT` (default `21911`)
+- `BF_P2P_PEERS` (comma list, e.g. `10.0.0.2:21911,10.0.0.3:21911`)
+- `BF_P2P_ANNOUNCE_HOST` (public/reachable host or IP announced to peers)
+- `BF_P2P_GOSSIP_TTL_SEC` (default `30`)
+- `BF_MASTER_USER_ID` / `BF_USER_ID` (optional filter for activity user)
+
+Notes:
+
+- This is direct TCP peer gossip, no central server required.
+- NAT/firewall still applies; for internet peers, use reachable IP/port forwarding.
+
+## libp2p Mesh (Bootstrap + Relay)
+
+Enable:
+
+`BF_LIBP2P_ENABLED=1`
+
+Settings:
+
+- `BF_LIBP2P_HOST` (default `0.0.0.0`)
+- `BF_LIBP2P_PORT` (default `21921`)
+- `BF_LIBP2P_TOPIC` (default `betterfluxer/activity/1`)
+- `BF_LIBP2P_BOOTSTRAP` (comma-separated libp2p multiaddrs)
+- `BF_LIBP2P_RELAYS` (comma-separated relay multiaddrs)
+- `BF_MASTER_USER_ID` / `BF_USER_ID` (optional activity user filter)
+
+Console:
+
+- `libp2p status` for connectivity and traffic counters.
 
 ## Allowlist
 

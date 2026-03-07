@@ -415,6 +415,7 @@ function buildRequireSnippet(inlinePlugins, options = {}) {
   const payload = JSON.stringify(inlinePlugins);
   const storeIndexSnapshot = JSON.stringify(Array.isArray(options.storeIndexSnapshot) ? options.storeIndexSnapshot : []);
   const enableIpcBridge = options && options.enableIpcBridge === true;
+  const customSplashIconDataUrl = JSON.stringify(String((options && options.customSplashIconDataUrl) || ""));
   return `${INJECTION_START}
 try {
   (function initBetterFluxerInline() {
@@ -422,6 +423,7 @@ try {
     const ENABLE_BETTERFLUXER_IPC_BRIDGE = ${enableIpcBridge ? "true" : "false"};
     const STORE_INDEX_URL = "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/refs/heads/main/plugins.json";
     const STORE_INDEX_SNAPSHOT = ${storeIndexSnapshot};
+    const CUSTOM_SPLASH_ICON_DATA_URL = ${customSplashIconDataUrl};
     let defs = ${payload};
     const runtime = {
       plugins: [],
@@ -440,6 +442,7 @@ try {
         observer: null,
         activeTab: "plugins",
         manualInstallMessage: "",
+        toastHost: null,
         customCategories: [],
         settingsNodes: {
           category: null,
@@ -480,6 +483,120 @@ try {
         error: (...args) => console.error("[BetterFluxer:" + pluginId + "]", ...args),
         debug: (...args) => console.debug("[BetterFluxer:" + pluginId + "]", ...args)
       };
+    }
+
+    function ensureToastHost() {
+      if (runtime.ui.toastHost && document.body && document.body.contains(runtime.ui.toastHost)) {
+        return runtime.ui.toastHost;
+      }
+      if (!document || !document.body) return null;
+      const existing = document.getElementById("bf-toast-host");
+      if (existing) {
+        runtime.ui.toastHost = existing;
+        return existing;
+      }
+      const host = document.createElement("div");
+      host.id = "bf-toast-host";
+      host.style.cssText = [
+        "position:fixed",
+        "top:14px",
+        "right:14px",
+        "z-index:2147483647",
+        "display:flex",
+        "flex-direction:column",
+        "gap:8px",
+        "pointer-events:none",
+        "max-width:420px"
+      ].join(";");
+      document.body.appendChild(host);
+      runtime.ui.toastHost = host;
+      return host;
+    }
+
+    function showToast(message, tone) {
+      const host = ensureToastHost();
+      if (!host) return;
+      const type = String(tone || "info").toLowerCase();
+      const bg =
+        type === "success" ? "rgba(16, 185, 129, 0.97)" : type === "error" ? "rgba(220, 38, 38, 0.97)" : "rgba(17, 24, 39, 0.97)";
+      const toast = document.createElement("div");
+      toast.style.cssText = [
+        "pointer-events:auto",
+        "color:#fff",
+        "background:" + bg,
+        "padding:10px 12px",
+        "border-radius:8px",
+        "font-size:12px",
+        "line-height:1.35",
+        "box-shadow:0 8px 24px rgba(0,0,0,0.35)",
+        "border:1px solid rgba(255,255,255,0.22)",
+        "opacity:0",
+        "transform:translateY(-6px)",
+        "transition:opacity .18s ease, transform .18s ease"
+      ].join(";");
+      toast.textContent = String(message || "");
+      host.appendChild(toast);
+      requestAnimationFrame(() => {
+        toast.style.opacity = "1";
+        toast.style.transform = "translateY(0)";
+      });
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateY(-6px)";
+        setTimeout(() => {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 220);
+      }, 3200);
+    }
+
+    function normalizeIconDataUrl(input) {
+      const raw = String(input || "").trim();
+      if (!raw) return "";
+      if (/^data:image\\/[a-z0-9.+-]+;base64,/i.test(raw)) return raw;
+      const compact = raw.replace(/\s+/g, "");
+      if (/^[a-z0-9+/=]+$/i.test(compact) && compact.length > 64) {
+        return "data:image/png;base64," + compact;
+      }
+      return "";
+    }
+
+    function applyCustomSplashIcon(root) {
+      const dataUrl = normalizeIconDataUrl(CUSTOM_SPLASH_ICON_DATA_URL);
+      if (!dataUrl) return false;
+      const scope = root && root.querySelectorAll ? root : document;
+      const wrappers = scope.querySelectorAll("div[class*='SplashScreen'][class*='iconWrapper']");
+      if (!wrappers.length) return false;
+      let changed = false;
+      for (const wrap of wrappers) {
+        if (!wrap || !wrap.querySelectorAll) continue;
+        let img = wrap.querySelector("img[data-bf-custom-splash-icon='1']");
+        if (!img) {
+          img = document.createElement("img");
+          img.setAttribute("data-bf-custom-splash-icon", "1");
+          img.setAttribute("alt", "BetterFluxer custom icon");
+          img.style.width = "100%";
+          img.style.height = "100%";
+          img.style.objectFit = "contain";
+          img.style.pointerEvents = "none";
+          const pulse = wrap.querySelector("div[class*='iconPulse']");
+          if (pulse && pulse.nextSibling) {
+            wrap.insertBefore(img, pulse.nextSibling);
+          } else {
+            wrap.appendChild(img);
+          }
+          changed = true;
+        }
+        if (img.getAttribute("src") !== dataUrl) {
+          img.setAttribute("src", dataUrl);
+          changed = true;
+        }
+        const svgs = wrap.querySelectorAll("svg");
+        for (const svg of svgs) {
+          svg.style.setProperty("display", "none", "important");
+          svg.style.setProperty("visibility", "hidden", "important");
+        }
+      }
+      return changed;
     }
 
     function createStorage(pluginId) {
@@ -941,6 +1058,7 @@ try {
       try {
         localStorage.removeItem(key("pluginEnabled:" + id));
       } catch (_e) {}
+      showToast("Plugin removed: " + id, "success");
       return true;
     }
 
@@ -1084,7 +1202,9 @@ try {
             url: target.url ? normalizeRemoteUrl(String(target.url)) : null
           };
           upsertStoredPluginDef(def);
-          return applyPluginDefinition(def, true);
+          const ok = applyPluginDefinition(def, true);
+          showToast(ok ? "Plugin installed: " + def.id : "Plugin install failed: " + def.id, ok ? "success" : "error");
+          return ok;
         }
 
         const manifestUrl = target.manifest ? normalizeRemoteUrl(String(target.manifest)) : "";
@@ -1109,9 +1229,12 @@ try {
           url: resolvedUrl
         };
         upsertStoredPluginDef(def);
-        return applyPluginDefinition(def, true);
+        const ok = applyPluginDefinition(def, true);
+        showToast(ok ? "Plugin installed: " + def.id : "Plugin install failed: " + def.id, ok ? "success" : "error");
+        return ok;
       } catch (error) {
         runtime.store.error = String((error && error.message) || error || "Install failed");
+        showToast("Plugin install failed", "error");
         return false;
       }
     }
@@ -1143,6 +1266,10 @@ try {
       runtime.ui.manualInstallMessage = ok
         ? "Installed plugin: " + def.name
         : "Install failed. Check console for details.";
+      showToast(
+        ok ? "Plugin installed: " + String(def.name || def.id) : "Plugin install failed: " + String(def.name || def.id),
+        ok ? "success" : "error"
+      );
       return ok;
     }
 
@@ -2300,11 +2427,13 @@ try {
         requestAnimationFrame(() => {
           pending = false;
           injectSettingsCategory();
+          applyCustomSplashIcon(document);
         });
       };
       runtime.ui.observer = new MutationObserver(() => schedule());
       runtime.ui.observer.observe(document.documentElement, { childList: true, subtree: true, attributes: false });
       injectSettingsCategory();
+      applyCustomSplashIcon(document);
 
       document.addEventListener(
         "click",
@@ -2340,6 +2469,7 @@ try {
         }
       }
       mountObservers();
+      applyCustomSplashIcon(document);
       const callPluginMethod = (pluginId, methodName, ...args) => {
         const id = String(pluginId || "");
         const method = String(methodName || "");
@@ -2414,6 +2544,7 @@ try {
 
           if (!targetEnabled) {
             runtime.plugins[idx] = { id: pluginId, instance: null, patcher: createPatcher(), enabled: false };
+            showToast("Plugin disabled: " + String(pluginId), "info");
             return true;
           }
 
@@ -2421,9 +2552,11 @@ try {
           if (!started) {
             runtime.plugins[idx] = { id: pluginId, instance: null, patcher: createPatcher(), enabled: false };
             setPluginEnabled(pluginId, false);
+            showToast("Plugin failed to enable: " + String(pluginId), "error");
             return false;
           }
           runtime.plugins[idx] = started;
+          showToast("Plugin enabled: " + String(pluginId), "success");
           if (forceRestart) {
             return true;
           }
@@ -2515,12 +2648,16 @@ try {
         }
       } catch (_e) {}
       window.__betterFluxerRuntime = runtime;
+      showToast("BetterFluxer injected", "success");
     });
 
     window.addEventListener("beforeunload", () => {
       closePanel();
       if (runtime.ui.observer) {
         runtime.ui.observer.disconnect();
+      }
+      if (runtime.ui.toastHost && runtime.ui.toastHost.parentNode) {
+        runtime.ui.toastHost.parentNode.removeChild(runtime.ui.toastHost);
       }
       for (const plugin of runtime.plugins) {
         stopPlugin(plugin);

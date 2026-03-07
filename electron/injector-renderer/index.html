@@ -33,6 +33,14 @@
           <span>App Path Override (optional)</span>
           <input id="appPath" type="text" placeholder="Use this if auto-detection misses your install path" />
         </label>
+        <label class="field advanced-only">
+          <span>Splash Icon (optional, base64 or data:image/...)</span>
+          <textarea
+            id="splashIconBase64"
+            rows="4"
+            placeholder="Paste data:image/png;base64,... or raw base64"
+          ></textarea>
+        </label>
         <div class="row">
           <label class="checkbox">
             <input id="closeFirst" type="checkbox" checked />

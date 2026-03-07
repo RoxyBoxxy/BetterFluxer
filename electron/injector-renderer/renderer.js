@@ -1,6 +1,7 @@
 const installRootEl = document.getElementById("installRoot");
 const versionEl = document.getElementById("version");
 const appPathEl = document.getElementById("appPath");
+const splashIconBase64El = document.getElementById("splashIconBase64");
 const closeFirstEl = document.getElementById("closeFirst");
 const statusGridEl = document.getElementById("statusGrid");
 const logEl = document.getElementById("log");
@@ -14,6 +15,7 @@ const injectBtn = document.getElementById("injectBtn");
 const uninjectBtn = document.getElementById("uninjectBtn");
 
 const UI_MODE_KEY = "betterfluxer:injectorMode";
+const SPLASH_ICON_KEY = "betterfluxer:splashIconBase64";
 let supportsAutoClose = true;
 let promptedAppImagePath = null;
 let isLinux = false;
@@ -28,11 +30,13 @@ function log(message) {
 }
 
 function getOptions() {
+  const splashIconBase64 = splashIconBase64El ? splashIconBase64El.value.trim() : "";
   return {
     installRoot: installRootEl.value.trim(),
     version: versionEl.value.trim() || undefined,
     appPath: appPathEl.value.trim() || undefined,
-    closeFluxerFirst: closeFirstEl.checked
+    closeFluxerFirst: closeFirstEl.checked,
+    splashIconBase64: splashIconBase64 || undefined
   };
 }
 
@@ -157,9 +161,19 @@ async function initDefaults() {
     } else {
       closeBtn.title = "";
     }
+    if (splashIconBase64El && !splashIconBase64El.value.trim()) {
+      const saved = localStorage.getItem(SPLASH_ICON_KEY) || "";
+      splashIconBase64El.value = saved;
+    }
   } catch (error) {
     log(`Defaults error: ${error.message}`);
   }
+}
+
+if (splashIconBase64El) {
+  splashIconBase64El.addEventListener("input", () => {
+    localStorage.setItem(SPLASH_ICON_KEY, splashIconBase64El.value || "");
+  });
 }
 
 checkBtn.addEventListener("click", async () => {

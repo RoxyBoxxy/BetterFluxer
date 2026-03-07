@@ -120,7 +120,25 @@ body {
   background: #1f2124;
 }
 
+.field textarea {
+  width: 100%;
+  border: 1px solid #434650;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.9rem;
+  color: var(--ink);
+  background: #1f2124;
+  resize: vertical;
+  min-height: 88px;
+}
+
 .field input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.25);
+}
+
+.field textarea:focus {
   outline: none;
   border-color: var(--brand);
   box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.25);

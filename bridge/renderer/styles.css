@@ -1,0 +1,115 @@
+:root {
+  --bg: #171a1f;
+  --panel: #232832;
+  --line: #3a4353;
+  --ink: #edf1f8;
+  --muted: #a3acbb;
+  --brand: #5d74ff;
+  --warn: #f09a2a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  background: radial-gradient(1000px 380px at 100% -10%, rgba(93, 116, 255, 0.2), transparent 60%), var(--bg);
+}
+
+.app {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+h1,
+h2,
+p {
+  margin: 0 0 8px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #131722;
+  color: var(--ink);
+  padding: 8px 10px;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 700;
+  background: var(--brand);
+  color: #fff;
+  cursor: pointer;
+}
+
+button.neutral {
+  background: #4a5365;
+}
+
+button.warn {
+  background: var(--warn);
+  color: #1a1a1a;
+}
+
+pre {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #10141d;
+  padding: 8px;
+  max-height: 180px;
+  overflow: auto;
+  color: #d8deea;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 0.83rem;
+  margin-bottom: 8px;
+}
+
+.results {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: #141a26;
+}
+
+.name {
+  font-weight: 700;
+}
+
+.path {
+  color: var(--muted);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+

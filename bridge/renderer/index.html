@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BetterFluxer Bridge</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="card">
+        <h1>BetterFluxer Bridge</h1>
+        <p>Runs in tray. Close window to hide from taskbar.</p>
+      </section>
+
+      <section class="card">
+        <h2>Service</h2>
+        <div class="row">
+          <input id="portInput" type="number" min="1" step="1" value="21864" />
+          <button id="startBtn">Start</button>
+          <button id="stopBtn" class="warn">Stop</button>
+          <button id="refreshBtn" class="neutral">Refresh</button>
+        </div>
+        <pre id="status"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Game Scan</h2>
+        <div class="row">
+          <input id="queryInput" type="text" placeholder="Search known games + custom apps..." />
+          <button id="searchBtn" class="neutral">Search</button>
+        </div>
+        <div id="meta" class="meta"></div>
+        <div id="results" class="results"></div>
+      </section>
+
+      <section class="card">
+        <h2>Custom Apps</h2>
+        <div class="row">
+          <input id="customNameInput" type="text" placeholder="Display name (e.g. My Modded Game)" />
+          <input id="customExeInput" type="text" placeholder="Exe name (e.g. mygame)" />
+        </div>
+        <div class="row">
+          <input id="customPathInput" type="text" placeholder="Optional path to exe" />
+          <button id="customAddBtn" class="neutral">Add Custom App</button>
+        </div>
+        <div id="customMeta" class="meta"></div>
+        <div id="customList" class="results"></div>
+      </section>
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

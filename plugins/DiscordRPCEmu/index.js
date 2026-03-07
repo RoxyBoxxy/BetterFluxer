@@ -69,6 +69,10 @@ module.exports = class DiscordRPCEmuPlugin {
     this.lastWindowsMediaAt = 0;
     this.lastWindowsMediaError = "";
     this.debugDetection = this.api.storage.get("debugDetection", false) === true;
+    this.userStatusKnown = this.api.storage.get("manualStatusKnown", false) === true;
+    this.userStatusText = String(this.api.storage.get("manualStatusText", "") || "");
+    this.autoStatusActive = false;
+    this.internalStatusWriteDepth = 0;
   }
 
   start() {
@@ -187,7 +191,10 @@ module.exports = class DiscordRPCEmuPlugin {
         cachedEndpoint: plugin.cachedStatusEndpoint || null,
         localBridgeEnabled: Boolean(plugin.localBridgeEnabled),
         localBridgePort: plugin.localBridgePort,
-        hasRecentWindowsMedia: Boolean(plugin.lastWindowsMedia && Date.now() - plugin.lastWindowsMediaAt < 30000)
+        hasRecentWindowsMedia: Boolean(plugin.lastWindowsMedia && Date.now() - plugin.lastWindowsMediaAt < 30000),
+        userStatusKnown: Boolean(plugin.userStatusKnown),
+        userStatusText: plugin.userStatusText || "",
+        autoStatusActive: Boolean(plugin.autoStatusActive)
       })
     };
 
@@ -237,6 +244,24 @@ module.exports = class DiscordRPCEmuPlugin {
     this.api.logger.info(`[debug] ${String(message || "")}`);
   }
 
+  extractCustomStatusText(bodyJson) {
+    const body = bodyJson && typeof bodyJson === "object" ? bodyJson : null;
+    if (!body) return { has: false, text: "" };
+    if (Object.prototype.hasOwnProperty.call(body, "custom_status")) {
+      const cs = body.custom_status;
+      if (cs == null) return { has: true, text: "" };
+      if (typeof cs === "object") return { has: true, text: String(cs.text || "").trim() };
+      return { has: true, text: String(cs || "").trim() };
+    }
+    if (body.status && typeof body.status === "object" && Object.prototype.hasOwnProperty.call(body.status, "custom_status")) {
+      const cs = body.status.custom_status;
+      if (cs == null) return { has: true, text: "" };
+      if (typeof cs === "object") return { has: true, text: String(cs.text || "").trim() };
+      return { has: true, text: String(cs || "").trim() };
+    }
+    return { has: false, text: "" };
+  }
+
   installFetchStatusCapture() {
     const win = this.api.app.getWindow?.();
     if (!win || typeof win.fetch !== "function" || this.fetchRestore) return;
@@ -272,18 +297,21 @@ module.exports = class DiscordRPCEmuPlugin {
       }
 
       if (response && response.ok && bodyJson && typeof bodyJson === "object") {
-        const hasCustomStatus =
-          Object.prototype.hasOwnProperty.call(bodyJson, "custom_status") ||
-          (bodyJson.status &&
-            typeof bodyJson.status === "object" &&
-            Object.prototype.hasOwnProperty.call(bodyJson.status, "custom_status"));
-        if (hasCustomStatus) {
+        const statusInfo = plugin.extractCustomStatusText(bodyJson);
+        if (statusInfo.has) {
           // Auto-learn successful status endpoint from real app traffic.
           if (plugin.captureStatusEndpointArmed || !plugin.cachedStatusEndpoint) {
             plugin.cachedStatusEndpoint = { method, url, body: bodyJson };
             plugin.api.storage.set("statusSyncEndpoint", plugin.cachedStatusEndpoint);
             plugin.captureStatusEndpointArmed = false;
             plugin.api.logger.info(`DiscordRPCEmu: captured status endpoint ${method} ${url}`);
+          }
+          if (plugin.internalStatusWriteDepth <= 0) {
+            plugin.userStatusKnown = true;
+            plugin.userStatusText = String(statusInfo.text || "");
+            plugin.api.storage.set("manualStatusKnown", true);
+            plugin.api.storage.set("manualStatusText", plugin.userStatusText);
+            plugin.debugLog("manual-status-captured", { text: plugin.userStatusText });
           }
         }
       }
@@ -531,17 +559,30 @@ module.exports = class DiscordRPCEmuPlugin {
   async applyNowPlayingFromSources() {
     if (!this.statusSyncEnabled) return false;
     const text = await this.getPreferredNowPlayingText();
-    if (!text) return false;
+    if (!text) {
+      if (this.autoStatusActive && this.userStatusKnown) {
+        const restoreText = String(this.userStatusText || "");
+        const restored = await this.setFluxerCustomStatus(restoreText, { allowEmpty: true });
+        if (restored) {
+          this.autoStatusActive = false;
+          this.lastAppliedStatusText = restoreText;
+          this.lastStatusApplyAt = Date.now();
+        }
+        return restored;
+      }
+      return false;
+    }
     if (text === this.lastAppliedStatusText) return true;
     const ok = await this.setFluxerCustomStatus(text);
     if (ok) {
+      this.autoStatusActive = true;
       this.lastAppliedStatusText = text;
       this.lastStatusApplyAt = Date.now();
     }
     return ok;
   }
 
-  async setFluxerCustomStatus(text) {
+  async setFluxerCustomStatus(text, options = {}) {
     const win = this.api.app.getWindow?.();
     if (!win || typeof win.fetch !== "function") return false;
     const token = this.getAuthToken();
@@ -557,11 +598,24 @@ module.exports = class DiscordRPCEmuPlugin {
     }
 
     const statusText = String(text || "").trim();
-    if (!statusText) return false;
+    const isClear = statusText.length === 0;
+    if (isClear && options.allowEmpty !== true) return false;
 
-    const withStatusText = (body, value) => {
+    const withStatusText = (body, value, clearMode) => {
       const input = body && typeof body === "object" ? JSON.parse(JSON.stringify(body)) : {};
       const out = input && typeof input === "object" ? input : {};
+      if (clearMode) {
+        if (Object.prototype.hasOwnProperty.call(out, "custom_status")) {
+          out.custom_status = null;
+          return out;
+        }
+        if (out.status && typeof out.status === "object" && Object.prototype.hasOwnProperty.call(out.status, "custom_status")) {
+          out.status.custom_status = null;
+          return out;
+        }
+        out.custom_status = null;
+        return out;
+      }
       if (out.custom_status && typeof out.custom_status === "object") {
         out.custom_status.text = value;
         return out;
@@ -582,18 +636,32 @@ module.exports = class DiscordRPCEmuPlugin {
       requestDefs.push({
         method: this.cachedStatusEndpoint.method,
         url: this.cachedStatusEndpoint.url,
-        body: withStatusText(this.cachedStatusEndpoint.body, statusText)
+        body: withStatusText(this.cachedStatusEndpoint.body, statusText, isClear)
       });
     }
-    requestDefs.push(
-      { method: "PATCH", url: "/api/v1/users/@me/settings", body: { custom_status: { text: statusText } } },
-      { method: "PATCH", url: "/api/v1/users/@me", body: { custom_status: { text: statusText } } },
-      { method: "PATCH", url: "/api/v1/users/@me/profile", body: { custom_status: { text: statusText } } },
-      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/settings", body: { custom_status: { text: statusText } } },
-      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me", body: { custom_status: { text: statusText } } },
-      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/profile", body: { custom_status: { text: statusText } } },
-      { method: "PATCH", url: "/api/v1/users/@me/settings", body: { status: { custom_status: { text: statusText } } } }
-    );
+    if (isClear) {
+      requestDefs.push(
+        { method: "PATCH", url: "/api/v1/users/@me/settings", body: { custom_status: null } },
+        { method: "PATCH", url: "/api/v1/users/@me/settings", body: { custom_status: { text: "" } } },
+        { method: "PATCH", url: "/api/v1/users/@me", body: { custom_status: null } },
+        { method: "PATCH", url: "/api/v1/users/@me/profile", body: { custom_status: null } },
+        { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/settings", body: { custom_status: null } },
+        { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/settings", body: { custom_status: { text: "" } } },
+        { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me", body: { custom_status: null } },
+        { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/profile", body: { custom_status: null } },
+        { method: "PATCH", url: "/api/v1/users/@me/settings", body: { status: { custom_status: null } } }
+      );
+    } else {
+      requestDefs.push(
+        { method: "PATCH", url: "/api/v1/users/@me/settings", body: { custom_status: { text: statusText } } },
+        { method: "PATCH", url: "/api/v1/users/@me", body: { custom_status: { text: statusText } } },
+        { method: "PATCH", url: "/api/v1/users/@me/profile", body: { custom_status: { text: statusText } } },
+        { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/settings", body: { custom_status: { text: statusText } } },
+        { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me", body: { custom_status: { text: statusText } } },
+        { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/profile", body: { custom_status: { text: statusText } } },
+        { method: "PATCH", url: "/api/v1/users/@me/settings", body: { status: { custom_status: { text: statusText } } } }
+      );
+    }
 
     const seen = new Set();
     for (const def of requestDefs) {
@@ -603,6 +671,7 @@ module.exports = class DiscordRPCEmuPlugin {
       seen.add(key);
       for (const headers of headerVariants) {
         try {
+          this.internalStatusWriteDepth += 1;
           const res = await win.fetch(def.url, {
             method: def.method,
             credentials: "include",
@@ -615,7 +684,10 @@ module.exports = class DiscordRPCEmuPlugin {
             this.api.storage.set("statusSyncEndpoint", this.cachedStatusEndpoint);
             return true;
           }
-        } catch (_) {}
+        } catch (_) {
+        } finally {
+          this.internalStatusWriteDepth = Math.max(0, this.internalStatusWriteDepth - 1);
+        }
       }
     }
     return false;
@@ -636,7 +708,10 @@ module.exports = class DiscordRPCEmuPlugin {
       lastStatusApplyAt: this.lastStatusApplyAt || 0,
       cachedEndpoint: this.cachedStatusEndpoint || null,
       hasRecentBridgeActivity: Boolean(this.lastBridgeActivity && Date.now() - this.lastBridgeActivityAt < 120000),
-      captureArmed: Boolean(this.captureStatusEndpointArmed)
+      captureArmed: Boolean(this.captureStatusEndpointArmed),
+      userStatusKnown: Boolean(this.userStatusKnown),
+      userStatusText: this.userStatusText || "",
+      autoStatusActive: Boolean(this.autoStatusActive)
     };
   }
 
@@ -722,9 +797,9 @@ module.exports = class DiscordRPCEmuPlugin {
 
   async setStatusTextNow(text) {
     const value = String(text || "").trim();
-    if (!value) return false;
-    const ok = await this.setFluxerCustomStatus(value);
+    const ok = await this.setFluxerCustomStatus(value, { allowEmpty: true });
     if (ok) {
+      this.autoStatusActive = false;
       this.lastAppliedStatusText = value;
       this.lastStatusApplyAt = Date.now();
     }

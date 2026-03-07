@@ -9,11 +9,12 @@
     "electron:start": "node scripts/electron-launcher.js electron/main.js",
     "electron:start:url": "node scripts/electron-launcher.js electron/main.js --url=",
     "electron:gui": "node scripts/electron-launcher.js electron/injector-main.js",
+    "bridge:app": "node scripts/electron-launcher.js bridge/electron-main.js",
     "dist:win": "node scripts/package-win.js",
     "dist:linux": "node scripts/package-linux.js",
-    "bridge:start": "node scripts/local-bridge.js",
-    "bridge:startup:install": "node scripts/local-bridge.js --startup-install",
-    "bridge:startup:remove": "node scripts/local-bridge.js --startup-remove",
+    "bridge:start": "node bridge/index.js",
+    "bridge:startup:install": "node bridge/index.js --startup-install",
+    "bridge:startup:remove": "node bridge/index.js --startup-remove",
     "dist:win:builder": "electron-builder --win nsis portable",
     "dist:win:nsis": "electron-builder --win nsis",
     "dist:win:portable": "electron-builder --win portable",
@@ -31,6 +32,13 @@
     "electron-builder": "^24.13.3"
   },
   "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "latest",
+    "@chainsafe/libp2p-noise": "latest",
+    "@libp2p/bootstrap": "latest",
+    "@libp2p/identify": "latest",
+    "@libp2p/mplex": "latest",
+    "@libp2p/tcp": "latest",
+    "libp2p": "latest",
     "undici": "^7.22.0"
   },
   "build": {
