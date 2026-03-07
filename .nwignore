@@ -1,0 +1,9 @@
+dist/
+node_modules/
+.git/
+.vscode/
+*.log
+*.md
+.gitignore
+.nwignore
+scripts/build.mjs
