@@ -1,0 +1,7 @@
+{
+  "name": "DiscordRPCEmu",
+  "version": "1.0.0",
+  "description": "Emulates a Discord RPC client API in Fluxer for compatibility scripts.",
+  "author": "BetterFluxer",
+  "main": "index.js"
+}

@@ -23,7 +23,7 @@ async function main() {
     platform: "win32",
     arch: "x64",
     asar: true,
-    name: "BetterFluxer Injector",
+    name: "BetterFluxer",
     executableName: "BetterFluxerInjector",
     ignore: (fullPath) => ignorePatterns.some((pattern) => pattern.test(fullPath))
   });

@@ -1598,6 +1598,10 @@ try {
           logger: createLogger(def.id),
           storage: createStorage(def.id),
           patcher,
+          network: {
+            fetchJson: async (url) => fetchThroughProxy(String(url || ""), "json"),
+            fetchText: async (url) => fetchThroughProxy(String(url || ""), "text")
+          },
           ui: runtime.uiClasses,
           classes: runtime.classTypes,
           settings: {
@@ -1660,6 +1664,10 @@ try {
         ".bf-toolbar{display:flex;gap:8px;margin-bottom:8px;}",
         ".bf-manual{margin-top:12px;border-top:1px solid #2b3139;padding-top:12px;display:grid;gap:8px;}",
         ".bf-manual h4{margin:0;font-size:13px;color:#d7dee7;}",
+        ".bf-section{margin-top:12px;border-top:1px solid #2b3139;padding-top:12px;display:grid;gap:8px;}",
+        ".bf-section h4{margin:0;font-size:13px;color:#d7dee7;}",
+        ".bf-field{display:grid;gap:4px;}",
+        ".bf-field label{font-size:12px;color:#9cacbe;}",
         ".bf-input,.bf-textarea{width:100%;box-sizing:border-box;background:#11151b;color:#e9eef5;border:1px solid #313b47;border-radius:8px;padding:8px 10px;font:12px/1.4 ui-monospace,monospace;}",
         ".bf-input{font-family:Segoe UI,Tahoma,sans-serif;}",
         ".bf-textarea{min-height:120px;resize:vertical;}",
@@ -1710,6 +1718,26 @@ try {
           "        <input type=\\"checkbox\\" data-bf-auto-cat />",
           "        Auto-inject BetterFluxer category in settings menu",
           "      </label>",
+          "      <div class=\\"bf-section\\">",
+          "        <h4>DiscordRPCEmu Bridge</h4>",
+          "        <label class=\\"bf-toggle\\">",
+          "          <input type=\\"checkbox\\" data-bf-bridge-enabled />",
+          "          Enable local bridge source for now-playing",
+          "        </label>",
+          "        <div class=\\"bf-field\\">",
+          "          <label>Bridge Port</label>",
+          "          <input class=\\"bf-input\\" type=\\"number\\" min=\\"1\\" step=\\"1\\" data-bf-bridge-port placeholder=\\"21864\\" />",
+          "        </div>",
+          "        <div class=\\"bf-field\\">",
+          "          <label>Bridge Token</label>",
+          "          <input class=\\"bf-input\\" type=\\"text\\" data-bf-bridge-token placeholder=\\"Token from data/bridge-token.txt\\" />",
+          "        </div>",
+          "        <div class=\\"bf-toolbar\\">",
+          "          <button class=\\"bf-btn\\" data-bf-bridge-save>Save Bridge</button>",
+          "          <button class=\\"bf-btn\\" data-bf-bridge-test>Test Sync Now</button>",
+          "        </div>",
+          "        <div class=\\"bf-meta\\" data-bf-bridge-status></div>",
+          "      </div>",
           "    </div>",
           "  </div>",
           "</div>"
@@ -1806,6 +1834,84 @@ try {
         setCoreSetting("autoInjectCategory", runtime.settings.autoInjectCategory);
         injectSettingsCategory();
       };
+
+      const bridgeEnabledInput = runtime.ui.panel.querySelector("[data-bf-bridge-enabled]");
+      const bridgePortInput = runtime.ui.panel.querySelector("[data-bf-bridge-port]");
+      const bridgeTokenInput = runtime.ui.panel.querySelector("[data-bf-bridge-token]");
+      const bridgeSaveBtn = runtime.ui.panel.querySelector("[data-bf-bridge-save]");
+      const bridgeTestBtn = runtime.ui.panel.querySelector("[data-bf-bridge-test]");
+      const bridgeStatus = runtime.ui.panel.querySelector("[data-bf-bridge-status]");
+      const callBridge = (methodName, ...args) => {
+        if (!window.BetterFluxer || typeof window.BetterFluxer.callPluginMethod !== "function") return null;
+        return window.BetterFluxer.callPluginMethod("DiscordRPCEmu", methodName, ...args);
+      };
+      const applyBridgeStateToInputs = (state) => {
+        if (!state || typeof state !== "object") return;
+        if (bridgeEnabledInput && Object.prototype.hasOwnProperty.call(state, "localBridgeEnabled")) {
+          bridgeEnabledInput.checked = Boolean(state.localBridgeEnabled);
+        }
+        if (bridgePortInput && Object.prototype.hasOwnProperty.call(state, "localBridgePort")) {
+          const p = Number(state.localBridgePort || 21864);
+          bridgePortInput.value = Number.isFinite(p) ? String(p) : "21864";
+        }
+      };
+      try {
+        const state = callBridge("getStatusSyncState");
+        applyBridgeStateToInputs(state);
+      } catch (_e) {}
+
+      if (bridgeSaveBtn) {
+        bridgeSaveBtn.onclick = () => {
+          bridgeSaveBtn.disabled = true;
+          const payload = {
+            enabled: bridgeEnabledInput ? Boolean(bridgeEnabledInput.checked) : true,
+            port: bridgePortInput ? Number.parseInt(String(bridgePortInput.value || "21864"), 10) : 21864
+          };
+          if (bridgeTokenInput) {
+            const tokenText = String(bridgeTokenInput.value || "").trim();
+            if (tokenText) payload.token = tokenText;
+          }
+          try {
+            const result = callBridge("configureLocalBridge", payload);
+            if (bridgeStatus) {
+              bridgeStatus.textContent =
+                "Saved. enabled=" +
+                String(result && result.enabled) +
+                " port=" +
+                String((result && result.port) || payload.port) +
+                " tokenSet=" +
+                String(Boolean(result && result.tokenSet));
+            }
+          } catch (error) {
+            if (bridgeStatus) {
+              bridgeStatus.textContent = "Bridge save failed: " + String((error && error.message) || error || "unknown");
+            }
+          } finally {
+            bridgeSaveBtn.disabled = false;
+          }
+        };
+      }
+
+      if (bridgeTestBtn) {
+        bridgeTestBtn.onclick = async () => {
+          bridgeTestBtn.disabled = true;
+          if (bridgeStatus) bridgeStatus.textContent = "Running now-playing sync...";
+          try {
+            const ok = await Promise.resolve(callBridge("syncNowPlayingNow"));
+            const state = callBridge("getStatusSyncState");
+            if (bridgeStatus) {
+              bridgeStatus.textContent =
+                "Sync result: " + String(Boolean(ok)) + (state && state.lastAppliedStatusText ? " | " + state.lastAppliedStatusText : "");
+            }
+          } catch (error) {
+            if (bridgeStatus) {
+              bridgeStatus.textContent = "Sync failed: " + String((error && error.message) || error || "unknown");
+            }
+          } finally {
+            bridgeTestBtn.disabled = false;
+          }
+        };
+      }
 
       const pluginsCard = runtime.ui.panel.querySelector("[data-bf-card-plugins]");
       const settingsCard = runtime.ui.panel.querySelector("[data-bf-card-settings]");
@@ -2234,6 +2340,20 @@ try {
         }
       }
       mountObservers();
+      const callPluginMethod = (pluginId, methodName, ...args) => {
+        const id = String(pluginId || "");
+        const method = String(methodName || "");
+        if (!id || !method) return null;
+        const plugin = runtime.plugins.find((p) => p && p.id === id);
+        if (!plugin || !plugin.instance) return null;
+        const fn = plugin.instance[method];
+        if (typeof fn !== "function") return null;
+        try {
+          return fn.apply(plugin.instance, args);
+        } catch (_e) {
+          return null;
+        }
+      };
       window.BetterFluxer = {
         listPlugins: () =>
           runtime.plugins.map((p) => ({
@@ -2274,6 +2394,7 @@ try {
           ]
         }),
         debugSettingsDOM: () => probeSettingsDom(),
+        callPluginMethod: (pluginId, methodName, ...args) => callPluginMethod(pluginId, methodName, ...args),
         reloadPlugin: (pluginId) => {
           const def = defs.find((d) => d.id === pluginId);
           if (!def) return false;
@@ -2315,8 +2436,9 @@ try {
           import_electron.contextBridge &&
           typeof import_electron.contextBridge.exposeInMainWorld === "function"
         ) {
-          import_electron.contextBridge.exposeInMainWorld("betterFluxerDebug", {
+          const debugBridgeApi = {
             debugSettingsDOM: () => probeSettingsDom(),
+            callPluginMethod: (pluginId, methodName, ...args) => callPluginMethod(pluginId, methodName, ...args),
             openSettings: (tabName) => renderPanel(tabName || "plugins"),
             loadStoreIndex: () => loadStoreIndex(),
             installStorePlugin: (item) => installStorePlugin(item),
@@ -2332,7 +2454,6 @@ try {
               remoteError: runtime.store.remoteError,
               items: runtime.store.items.slice()
             }),
-            ui: runtime.uiClasses,
             userProfile: {
               getCurrentUser: () => runtime.uiClasses.userProfile.getCurrentUser(),
               getCurrentUserData: () => runtime.uiClasses.userProfile.getCurrentUserData(),
@@ -2356,7 +2477,6 @@ try {
               getItems: () => runtime.uiClasses.settingsSidebar.getItems(),
               clickById: (tabId) => runtime.uiClasses.settingsSidebar.clickById(tabId)
             },
-            classes: runtime.classTypes,
             registerSettingsCategory: (categoryDef) => registerSettingsCategory(categoryDef),
             unregisterSettingsCategory: (categoryId) => unregisterSettingsCategory(categoryId),
             listSettingsCategories: () =>
@@ -2378,7 +2498,20 @@ try {
                 id: p.id,
                 enabled: Boolean(p.enabled)
               }))
-          });
+          };
+
+          const safeExpose = (name, value) => {
+            try {
+              import_electron.contextBridge.exposeInMainWorld(name, value);
+              return true;
+            } catch (_exposeError) {
+              return false;
+            }
+          };
+
+          safeExpose("betterFluxerDebug", debugBridgeApi);
+          safeExpose("bfDebug", debugBridgeApi);
+          safeExpose("BetterFluxer", window.BetterFluxer);
         }
       } catch (_e) {}
       window.__betterFluxerRuntime = runtime;
