@@ -5,6 +5,21 @@ function copyRecursive(src, dest) {
   fs.cpSync(src, dest, { recursive: true, force: true });
 }
 
+function copyPluginsIntoStage(root, stageRoot) {
+  const rootPlugins = path.join(root, "plugins");
+  const nwPlugins = path.join(root, "nw", "plugins");
+  const stagePlugins = path.join(stageRoot, "plugins");
+  if (fs.existsSync(rootPlugins)) {
+    copyRecursive(rootPlugins, stagePlugins);
+    return;
+  }
+  if (fs.existsSync(nwPlugins)) {
+    copyRecursive(nwPlugins, stagePlugins);
+    return;
+  }
+  fs.mkdirSync(stagePlugins, { recursive: true });
+}
+
 function ensureCleanDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
@@ -29,7 +44,7 @@ function createStage(root, outDir) {
 
   copyRecursive(path.join(root, "nw"), path.join(stageRoot, "nw"));
   copyRecursive(path.join(root, "scripts"), path.join(stageRoot, "scripts"));
-  copyRecursive(path.join(root, "plugins"), path.join(stageRoot, "plugins"));
+  copyPluginsIntoStage(root, stageRoot);
   copyRecursive(path.join(root, "src"), path.join(stageRoot, "src"));
   copyRecursive(path.join(root, "docs"), path.join(stageRoot, "docs"));
 
