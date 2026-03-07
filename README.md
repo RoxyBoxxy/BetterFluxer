@@ -126,7 +126,7 @@ npm run inject -- --version=0.0.8
 Inject specific app folder directly:
 
 ```bash
-npm run inject -- --app-path="C:\Users\Rox\AppData\Local\fluxer_app\app-0.0.8"
+npm run inject -- --app-path="C:\Users\<USERNAME>\AppData\Local\fluxer_app\app-0.0.8"
 ```
 
 Dry-run (no file changes):
@@ -138,7 +138,7 @@ npm run inject -- --app-path=".\app_do_not_edit" --dry-run
 Remove injection:
 
 ```bash
-npm run uninject -- --app-path="C:\Users\Rox\AppData\Local\fluxer_app\app-0.0.8"
+npm run uninject -- --app-path="C:\Users\<USERNAME>\AppData\Local\fluxer_app\app-0.0.8"
 ```
 
 What gets modified:

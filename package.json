@@ -10,6 +10,7 @@
     "electron:start:url": "node scripts/electron-launcher.js electron/main.js --url=",
     "electron:gui": "node scripts/electron-launcher.js electron/injector-main.js",
     "dist:win": "node scripts/package-win.js",
+    "dist:linux": "node scripts/package-linux.js",
     "dist:win:builder": "electron-builder --win nsis portable",
     "dist:win:nsis": "electron-builder --win nsis",
     "dist:win:portable": "electron-builder --win portable",

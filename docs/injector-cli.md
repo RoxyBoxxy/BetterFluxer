@@ -3,7 +3,7 @@
 ## Inject
 
 ```bash
-npm run inject -- --app-path="C:\Users\Rox\AppData\Local\fluxer_app\app-0.0.8"
+npm run inject -- --app-path="C:\Users\<USERNAME>\AppData\Local\fluxer_app\app-0.0.8"
 ```
 
 Options:
@@ -24,7 +24,7 @@ Default install roots by OS:
 ## Uninject
 
 ```bash
-npm run uninject -- --app-path="C:\Users\Rox\AppData\Local\fluxer_app\app-0.0.8"
+npm run uninject -- --app-path="C:\Users\<USERNAME>\AppData\Local\fluxer_app\app-0.0.8"
 ```
 
 Restores preload from backup (if present) and removes injected runtime files.
