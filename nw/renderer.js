@@ -78,15 +78,26 @@ function renderStatus(status) {
 function applyMode(mode) {
   currentMode = mode === "advanced" ? "advanced" : "simple";
   document.body.setAttribute("data-mode", currentMode);
-  modeSimpleBtn.setAttribute("aria-pressed", String(currentMode === "simple"));
-  modeAdvancedBtn.setAttribute("aria-pressed", String(currentMode === "advanced"));
-  modeSimpleBtn.classList.toggle("active", currentMode === "simple");
-  modeAdvancedBtn.classList.toggle("active", currentMode === "advanced");
   localStorage.setItem(UI_MODE_KEY, currentMode);
-  if (lastStatus) {
-    renderStatus(lastStatus);
-  }
+
+  const isAdvanced = currentMode === "advanced";
+
+  document.querySelectorAll("[data-advanced]").forEach(el => {
+    if (el.id === "installLatestBtn") return;
+    el.classList.toggle("hidden", !isAdvanced);
+  });
+
+  modeSimpleBtn.className = `px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+    !isAdvanced ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"
+  }`;
+  modeAdvancedBtn.className = `px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+    isAdvanced ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"
+  }`;
+
+  if (lastStatus) renderStatus(lastStatus);
 }
+
+
 
 function needsAppImageInstallPrompt(status) {
   const processInfo = status.process || {};

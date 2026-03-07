@@ -1,7 +1,0 @@
-{
-  "name": "UserVolumeBooster",
-  "version": "1.0.0",
-  "description": "Boosts user audio beyond 100% and expands volume slider limits.",
-  "author": "BetterFluxer",
-  "main": "index.js"
-}

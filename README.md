@@ -5,7 +5,7 @@ BetterFluxer is a BetterDiscord-style runtime for Fluxer. It provides:
 - Plugin discovery and lifecycle (`start`, `stop`, `reload`)
 - Safe monkey patching API (`before`, `after`, `instead`, `unpatchAll`)
 - Per-plugin persistent JSON storage
-- Electron preload integration pattern
+- Fluxer preload integration pattern
 - Docs: see [`docs/README.md`](./docs/README.md)
 
 ## Quick start
@@ -18,38 +18,15 @@ npm start
 
 `npm start` loads plugins from `./plugins`.
 
-## Electron injector app
+## NW injector app
 
-This repo now includes a full Electron launcher that loads Fluxer and injects BetterFluxer.
+This repo includes an NW.js injector app that patches Fluxer and loads BetterFluxer plugins.
 
-1. Install dependencies:
-
-```bash
-npm install
-```
-
-2. Start the injector app:
+Start the injector app:
 
 ```bash
-npm run electron:start
+npm start
 ```
-
-3. Optional: point to a specific Fluxer client URL:
-
-```bash
-npm run electron:start:url -- --url=https://your-fluxer-client-url
-```
-
-You can also set:
-
-- `FLUXER_CLIENT_URL`: client URL override
-- `BETTERFLUXER_HOME`: custom runtime root (contains `plugins/` and `data/`)
-
-Main Electron files:
-
-- `electron/main.js`
-- `electron/preload.js`
-- `electron/fluxer.config.example.json`
 
 ## Inject into installed Fluxer desktop app
 
@@ -58,7 +35,7 @@ If you want BetterFluxer injected into the real Fluxer installation (instead of 
 GUI option (recommended):
 
 ```bash
-npm run electron:gui
+npm start
 ```
 
 ## Build Windows EXE
@@ -77,13 +54,12 @@ Output is written to `dist/` as a packaged app folder containing:
 Useful variants:
 
 ```bash
-npm run dist:win:builder
-npm run dist:win:nsis
-npm run dist:win:portable
-npm run dist:dir
+npm run dist:win:onefile
+npm run dist:linux
+npm run dist:bridge:win
+npm run dist:bridge:msi
+npm run dist:bridge:linux
 ```
-
-Note: `dist:win:builder` (electron-builder) may require elevated privileges or Windows Developer Mode on some systems due symlink extraction used by signing tools. If that fails, use `dist:win` (packager), which still gives you a working `.exe`.
 
 On Linux, the launcher applies GTK/X11-safe defaults automatically. If needed, you can still override with your own env vars/flags.
 On Linux, the injector also inspects the running Fluxer process (`/proc`) to detect PID, AppImage path, and candidate app path.

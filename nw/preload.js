@@ -5,15 +5,16 @@ function resolveRuntimeRoot() {
   if (process.env.BETTERFLUXER_HOME) {
     return process.env.BETTERFLUXER_HOME;
   }
-  return path.resolve(__dirname, "..");
+  return process.cwd();
 }
+
 
 const runtime = createBetterFluxer({
   rootPath: resolveRuntimeRoot(),
   appContext: {
     getWindow: () => window,
     getDocument: () => document,
-    getLocation: () => window.location
+    getLocation: () => window.location 
   }
 });
 

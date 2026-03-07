@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BetterFluxer Bridge</title>
+  <style>
+    body { font-family: Segoe UI, sans-serif; background: #0e0f14; color: #e7e9ee; margin: 0; }
+    .wrap { padding: 16px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    button { background: #1f2430; color: #e7e9ee; border: 1px solid #2e3544; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button:hover { background: #2a3142; }
+    .status { background: #121622; border: 1px solid #2e3544; border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+    pre { background: #0b0d14; border: 1px solid #2e3544; border-radius: 8px; padding: 12px; height: 460px; overflow: auto; white-space: pre-wrap; }
+    code { color: #8ad1ff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>BetterFluxer Bridge (NW.js)</h2>
+    <div class="row">
+      <button id="startBtn">Start Bridge</button>
+      <button id="stopBtn">Stop Bridge</button>
+      <button id="healthBtn">Check Health</button>
+      <button id="probeBtn">Probe Now Playing</button>
+    </div>
+    <div class="status" id="status">Status: idle</div>
+    <pre id="log"></pre>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>

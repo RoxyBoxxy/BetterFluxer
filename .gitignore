@@ -10,10 +10,13 @@ out/
 data/
 tmp_asar/
 tmp_full_asar/
+cache/
+.tmp-nw-stage-win/
+.tmp-nw-stage-linux/
 
 # Local app copy / extraction workspace
 app_do_not_edit/
-
+MyPlugins/
 # Logs
 *.log
 npm-debug.log*

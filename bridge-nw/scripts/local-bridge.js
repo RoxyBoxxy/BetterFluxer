@@ -34,11 +34,16 @@ const CACHE_FILE = path.join(DATA_DIR, "bridge-cache.json");
 
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.BF_BRIDGE_PORT || "21864", 10);
-const BRIDGE_VERSION = "2026-03-07-winrt-v3";
+const BRIDGE_VERSION = "2026-03-07-rpc-tuna";
 const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.BF_BRIDGE_TIMEOUT_MS || "12000", 10);
 const DEFAULT_TTL_SECONDS = Number.parseInt(process.env.BF_BRIDGE_DEFAULT_TTL || "120", 10);
 const MAX_TTL_SECONDS = Number.parseInt(process.env.BF_BRIDGE_MAX_TTL || "1800", 10);
-const STARTUP_VBS_NAME = "BetterFluxerBridge.vbs";
+const WINDOWS_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const WINDOWS_RUN_VALUE = "BetterFluxerBridge";
+const LINUX_BIN_DIR = path.join(os.homedir(), ".local", "bin");
+const LINUX_AUTOSTART_DIR = path.join(os.homedir(), ".config", "autostart");
+const LINUX_LAUNCHER_NAME = "betterfluxer-bridge";
+const LINUX_AUTOSTART_NAME = "betterfluxer-bridge.desktop";
 
 const DEFAULT_ALLOWLIST = [
   "raw.githubusercontent.com",
@@ -165,16 +170,74 @@ function isPackagedExe() {
   return process.platform === "win32" && String(path.extname(process.execPath || "")).toLowerCase() === ".exe";
 }
 
-function installWindowsStartup() {
+function getWindowsLocalInstallDir() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  return path.join(localAppData, "BetterFluxer", "bridge");
+}
+
+function runReg(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("reg.exe", args, { windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk || "");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk || "");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      resolve({
+        code: Number(code || 0),
+        stdout: String(stdout || ""),
+        stderr: String(stderr || "")
+      });
+    });
+  });
+}
+
+async function setWindowsRunValue(commandLine) {
+  const value = String(commandLine || "").trim();
+  const result = await runReg([
+    "ADD",
+    WINDOWS_RUN_KEY,
+    "/v",
+    WINDOWS_RUN_VALUE,
+    "/t",
+    "REG_SZ",
+    "/d",
+    value,
+    "/f"
+  ]);
+  if (result.code !== 0) {
+    throw new Error(`Failed to write Run key: ${result.stderr || result.stdout || `exit ${result.code}`}`);
+  }
+}
+
+async function deleteWindowsRunValue() {
+  const result = await runReg([
+    "DELETE",
+    WINDOWS_RUN_KEY,
+    "/v",
+    WINDOWS_RUN_VALUE,
+    "/f"
+  ]);
+  if (result.code !== 0) {
+    const out = `${result.stderr || ""} ${result.stdout || ""}`.toLowerCase();
+    if (!out.includes("unable to find") && !out.includes("cannot find")) {
+      throw new Error(`Failed to remove Run key: ${result.stderr || result.stdout || `exit ${result.code}`}`);
+    }
+  }
+}
+
+async function installWindowsStartup() {
   if (process.platform !== "win32") {
     console.log("[BetterFluxer Bridge] Startup install is only supported on Windows.");
     return 1;
   }
 
-  const startupDir = getWindowsStartupFolder();
-  fs.mkdirSync(startupDir, { recursive: true });
-  const vbsPath = path.join(startupDir, STARTUP_VBS_NAME);
-  const installDir = path.join(BRIDGE_BASE_DIR, "bridge");
+  const installDir = getWindowsLocalInstallDir();
   fs.mkdirSync(installDir, { recursive: true });
 
   let runTarget = process.execPath;
@@ -186,38 +249,99 @@ function installWindowsStartup() {
     runTarget = installedExePath;
   }
 
-  let runCommand = "";
+  let runCommand;
   if (isPackagedExe()) {
-    runCommand = `""${runTarget}" --hidden"`;
+    runCommand = `"${runTarget}" --hidden`;
   } else {
     const scriptPath = path.resolve(__filename);
-    runCommand = `""${process.execPath}" "${scriptPath}" --hidden"`;
+    runCommand = `"${process.execPath}" "${scriptPath}" --hidden`;
   }
 
-  const vbs = [
-    'Set WshShell = CreateObject("WScript.Shell")',
-    `WshShell.CurrentDirectory = "${installDir.replace(/"/g, '""')}"`,
-    `WshShell.Run "${runCommand.replace(/"/g, '""')}", 0, False`
-  ].join("\r\n");
-
-  fs.writeFileSync(vbsPath, `${vbs}\r\n`, "utf8");
-  console.log(`[BetterFluxer Bridge] Startup enabled: ${vbsPath}`);
+  await setWindowsRunValue(runCommand);
+  console.log(`[BetterFluxer Bridge] Startup enabled via Run key (${WINDOWS_RUN_VALUE}).`);
+  console.log(`[BetterFluxer Bridge] Install dir: ${installDir}`);
   return 0;
 }
 
-function removeWindowsStartup() {
+async function removeWindowsStartup() {
   if (process.platform !== "win32") {
     console.log("[BetterFluxer Bridge] Startup remove is only supported on Windows.");
     return 1;
   }
-  const vbsPath = path.join(getWindowsStartupFolder(), STARTUP_VBS_NAME);
-  if (fs.existsSync(vbsPath)) {
-    fs.unlinkSync(vbsPath);
-    console.log(`[BetterFluxer Bridge] Startup disabled: ${vbsPath}`);
-  } else {
-    console.log("[BetterFluxer Bridge] Startup entry not found.");
-  }
+
+  await deleteWindowsRunValue();
+  console.log(`[BetterFluxer Bridge] Startup disabled via Run key (${WINDOWS_RUN_VALUE}).`);
   return 0;
+}
+
+function installLinuxBridge() {
+  if (process.platform !== "linux") {
+    console.log("[BetterFluxer Bridge] Linux install is only supported on Linux.");
+    return 1;
+  }
+
+  fs.mkdirSync(LINUX_BIN_DIR, { recursive: true });
+  fs.mkdirSync(LINUX_AUTOSTART_DIR, { recursive: true });
+
+  const launcherPath = path.join(LINUX_BIN_DIR, LINUX_LAUNCHER_NAME);
+  const scriptPath = path.resolve(__filename);
+  const execLine = isPackagedExe()
+    ? `"${process.execPath}" --hidden`
+    : `"${process.execPath}" "${scriptPath}" --hidden`;
+
+  const launcherScript = [
+    "#!/usr/bin/env sh",
+    "set -eu",
+    execLine
+  ].join("\n");
+  fs.writeFileSync(launcherPath, `${launcherScript}\n`, { encoding: "utf8", mode: 0o755 });
+  fs.chmodSync(launcherPath, 0o755);
+
+  const desktopPath = path.join(LINUX_AUTOSTART_DIR, LINUX_AUTOSTART_NAME);
+  const desktopEntry = [
+    "[Desktop Entry]",
+    "Type=Application",
+    "Version=1.0",
+    "Name=BetterFluxer Bridge",
+    "Comment=BetterFluxer local bridge",
+    `Exec=${launcherPath}`,
+    "Terminal=false",
+    "X-GNOME-Autostart-enabled=true",
+    "StartupNotify=false"
+  ].join("\n");
+  fs.writeFileSync(desktopPath, `${desktopEntry}\n`, "utf8");
+  console.log(`[BetterFluxer Bridge] Linux launcher installed: ${launcherPath}`);
+  console.log(`[BetterFluxer Bridge] Linux autostart installed: ${desktopPath}`);
+  return 0;
+}
+
+function removeLinuxBridge() {
+  if (process.platform !== "linux") {
+    console.log("[BetterFluxer Bridge] Linux uninstall is only supported on Linux.");
+    return 1;
+  }
+
+  const launcherPath = path.join(LINUX_BIN_DIR, LINUX_LAUNCHER_NAME);
+  const desktopPath = path.join(LINUX_AUTOSTART_DIR, LINUX_AUTOSTART_NAME);
+  if (fs.existsSync(launcherPath)) fs.unlinkSync(launcherPath);
+  if (fs.existsSync(desktopPath)) fs.unlinkSync(desktopPath);
+  console.log(`[BetterFluxer Bridge] Linux launcher removed: ${launcherPath}`);
+  console.log(`[BetterFluxer Bridge] Linux autostart removed: ${desktopPath}`);
+  return 0;
+}
+
+async function installBridge() {
+  if (process.platform === "win32") return installWindowsStartup();
+  if (process.platform === "linux") return installLinuxBridge();
+  console.log("[BetterFluxer Bridge] --install is supported on Windows and Linux only.");
+  return 1;
+}
+
+async function uninstallBridge() {
+  if (process.platform === "win32") return removeWindowsStartup();
+  if (process.platform === "linux") return removeLinuxBridge();
+  console.log("[BetterFluxer Bridge] --uninstall is supported on Windows and Linux only.");
+  return 1;
 }
 
 function getTunaJsonPath() {
@@ -336,118 +460,13 @@ function runCommand(command, args, timeoutMs = 6000) {
   });
 }
 
-function runPowerShellJson(script, timeoutMs = 6000) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "powershell.exe",
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-      { windowsHide: true }
-    );
-
-    let stdout = "";
-    let stderr = "";
-    const timeout = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch (_) {}
-      reject(new Error("PowerShell timeout"));
-    }, Math.max(1000, Number(timeoutMs || 6000)));
-
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk || "");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk || "");
-    });
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) {
-        reject(new Error(`PowerShell exited ${code}: ${stderr.trim() || "unknown error"}`));
-        return;
-      }
-      const raw = String(stdout || "").trim();
-      if (!raw) {
-        reject(new Error("PowerShell returned empty output"));
-        return;
-      }
-      try {
-        resolve(JSON.parse(raw));
-      } catch (error) {
-        reject(new Error(`PowerShell JSON parse failed: ${String((error && error.message) || error)}`));
-      }
-    });
-  });
-}
-
 async function queryWindowsMedia() {
-  if (process.platform !== "win32") {
-    return { ok: false, error: "Windows only", platform: process.platform };
-  }
-
-  const ps = [
-    "$ErrorActionPreference = 'Stop'",
-    "Add-Type -AssemblyName System.Runtime.WindowsRuntime",
-    "$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {",
-    "  $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1",
-    "} | Select-Object -First 1)",
-    "if ($null -eq $asTask) { throw 'System.WindowsRuntimeSystemExtensions.AsTask generic overload not found' }",
-    "function Await-WinRTTyped($op, [Type]$resultType) {",
-    "  if ($null -eq $op) { return $null }",
-    "  $task = $asTask.MakeGenericMethod($resultType).Invoke($null, @($op))",
-    "  try {",
-    "    return $task.GetAwaiter().GetResult()",
-    "  } catch {",
-    "    $msg = [string]$_.Exception",
-    "    if ($_.Exception -and $_.Exception.InnerException) {",
-    "      $msg = $msg + ' | inner: ' + [string]$_.Exception.InnerException",
-    "      if ($_.Exception.InnerException.InnerException) {",
-    "        $msg = $msg + ' | inner2: ' + [string]$_.Exception.InnerException.InnerException",
-    "      }",
-    "    }",
-    "    throw $msg",
-    "  }",
-    "}",
-    "$null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]",
-    "$mgrOp = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()",
-    "$mgr = Await-WinRTTyped $mgrOp ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])",
-    "$session = $mgr.GetCurrentSession()",
-    "if ($null -eq $session) {",
-    "  @{ ok = $true; hasSession = $false } | ConvertTo-Json -Compress",
-    "  exit 0",
-    "}",
-    "$propsOp = $session.TryGetMediaPropertiesAsync()",
-    "$props = Await-WinRTTyped $propsOp ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])",
-    "$info = $session.GetPlaybackInfo()",
-    "$timeline = $session.GetTimelineProperties()",
-    "@{",
-    "  ok = $true;",
-    "  hasSession = $true;",
-    "  title = [string]$props.Title;",
-    "  artist = [string]$props.Artist;",
-    "  albumTitle = [string]$props.AlbumTitle;",
-    "  appId = [string]$session.SourceAppUserModelId;",
-    "  playbackStatus = [string]$info.PlaybackStatus;",
-    "  positionMs = [int64]$timeline.Position.TotalMilliseconds;",
-    "  durationMs = [int64]$timeline.EndTime.TotalMilliseconds",
-    "} | ConvertTo-Json -Compress"
-  ].join("\n");
-
-  try {
-    return await runPowerShellJson(ps, 7000);
-  } catch (error) {
-    const msg = String((error && error.message) || error || "unknown");
-    if (/Class not registered/i.test(msg)) {
-      return {
-        ok: false,
-        error: "Windows GSMTC unavailable (Class not registered)"
-      };
-    }
-    return { ok: false, error: msg };
-  }
+  return {
+    ok: false,
+    hasSession: false,
+    source: "windows-gsmtc-disabled",
+    error: "Windows media API disabled"
+  };
 }
 
 async function queryTunaNowPlaying(state) {
@@ -726,12 +745,11 @@ async function queryUniversalNowPlaying(state) {
   }
 
   if (process.platform === "win32") {
-    const win = await queryWindowsMedia();
-    const normalizedWin = { ...win, source: win && win.source ? win.source : "windows-gsmtc" };
-    if (normalizedWin.ok && normalizedWin.hasSession) return normalizedWin;
     const tuna = await queryTunaNowPlaying(state);
     if (tuna && tuna.ok && tuna.hasSession) return tuna;
-    return normalizedWin.ok ? normalizedWin : tuna.ok ? tuna : normalizedWin;
+    return tuna && tuna.ok
+      ? tuna
+      : { ok: false, hasSession: false, source: "windows-now-playing", error: "No active RPC or Tuna session" };
   }
   if (process.platform === "linux") {
     const linux = await queryLinuxMedia();
@@ -839,12 +857,20 @@ function setupConsoleControls(state, options = {}) {
 
 async function main() {
   const args = parseArgv(process.argv.slice(2));
+  if (args.install) {
+    process.exit(await installBridge());
+    return;
+  }
+  if (args.uninstall) {
+    process.exit(await uninstallBridge());
+    return;
+  }
   if (args["startup-install"]) {
-    process.exit(installWindowsStartup());
+    process.exit(await installWindowsStartup());
     return;
   }
   if (args["startup-remove"]) {
-    process.exit(removeWindowsStartup());
+    process.exit(await removeWindowsStartup());
     return;
   }
 
@@ -899,29 +925,12 @@ async function main() {
     }
 
     if (url.pathname === "/windows/media" || url.pathname === "/windows/media/now-playing") {
-      const authHeader = String(req.headers.authorization || "");
-      const headerToken = String(req.headers["x-betterfluxer-token"] || "").trim();
-      const queryToken = String(url.searchParams.get("token") || "").trim();
-      const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
-      const suppliedToken = headerToken || bearer || queryToken;
-      if (!suppliedToken || suppliedToken !== token) {
-        return sendJson(res, 401, { ok: false, error: "Invalid token" }, origin || "*");
-      }
-      const media = await queryWindowsMedia();
-      bridgeState.lastNowPlaying = media;
-      bridgeState.lastNowPlayingAt = Date.now();
-      try {
-        if (media && media.ok && media.hasSession) {
-          console.log(
-            `[BetterFluxer Bridge] Windows media: title="${String(media.title || "")}" artist="${String(media.artist || "")}" appId="${String(media.appId || "")}" status="${String(media.playbackStatus || "")}"`
-          );
-        } else if (media && media.ok) {
-          console.log("[BetterFluxer Bridge] Windows media: no active session");
-        } else {
-          console.warn("[BetterFluxer Bridge] Windows media query failed:", String((media && media.error) || "unknown"));
-        }
-      } catch (_) {}
-      return sendJson(res, media && media.ok ? 200 : 502, media, origin || "*");
+      return sendJson(
+        res,
+        410,
+        { ok: false, error: "Windows media endpoint disabled. Use /now-playing." },
+        origin || "*"
+      );
     }
 
     if (url.pathname === "/now-playing" || url.pathname === "/nowplaying") {

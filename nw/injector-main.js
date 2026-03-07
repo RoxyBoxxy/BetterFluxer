@@ -1,11 +1,10 @@
-const fs = require("fs");
+const fs = require("fs")
 const https = require("https");
 const http = require("http");
 const os = require("os");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { app, BrowserWindow, ipcMain } = require("electron");
 const {
   DEFAULT_INSTALL_ROOTS,
   resolveInstallRoot,
@@ -768,40 +767,18 @@ async function runUninject(options = {}) {
   };
 }
 
-function createWindow() {
-  const window = new BrowserWindow({
-    width: 980,
-    height: 760,
-    minWidth: 880,
-    minHeight: 680,
-    title: "BetterFluxer Injector",
-    webPreferences: {
-      preload: path.join(__dirname, "injector-preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-  window.loadFile(path.join(__dirname, "injector-renderer", "index.html"));
-}
-
-ipcMain.handle("injector:status", async (_event, payload) => readStatus(payload || {}));
-ipcMain.handle("injector:close-fluxer", async () => closeFluxer());
-ipcMain.handle("injector:inject", async (_event, payload) => runInject(payload || {}));
-ipcMain.handle("injector:uninject", async (_event, payload) => runUninject(payload || {}));
-ipcMain.handle("injector:install-appimage", async (_event, payload) => installLinuxAppImage(payload || {}));
-ipcMain.handle("injector:install-latest-linux-appimage", async () => installLatestLinuxAppImage());
-ipcMain.handle("injector:defaults", async () => ({
-  platform: process.platform,
-  defaultInstallRoot: resolveInstallRoot(),
-  defaultInstallRoots: DEFAULT_INSTALL_ROOTS,
-  supportsAutoClose: process.platform === "win32" || process.platform === "linux" || process.platform === "darwin",
-  linuxLatestAppImageUrl: LINUX_LATEST_APPIMAGE_URL
-}));
-
-app.whenReady().then(() => {
-  createWindow();
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+module.exports = {
+  getDefaults: async () => ({
+    platform: process.platform,
+    defaultInstallRoot: resolveInstallRoot(),
+    defaultInstallRoots: DEFAULT_INSTALL_ROOTS,
+    supportsAutoClose: process.platform === "win32" || process.platform === "linux" || process.platform === "darwin",
+    linuxLatestAppImageUrl: LINUX_LATEST_APPIMAGE_URL
+  }),
+  getStatus: (options) => readStatus(options || {}),
+  closeFluxer: () => closeFluxer(),
+  inject: (options) => runInject(options || {}),
+  uninject: (options) => runUninject(options || {}),
+  installAppImage: (options) => installLinuxAppImage(options || {}),
+  installLatestLinuxAppImage: () => installLatestLinuxAppImage()
+};

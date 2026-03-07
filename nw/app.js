@@ -1,11 +1,14 @@
 const fs = require("fs");
 const path = require("path");
-const { app, BrowserWindow } = require("electron");
+
+const nwWindow = nw.Window.get();
+const nwApp = nw.App;
 
 const DEFAULT_CLIENT_URL = "https://fluxer.app";
 
 function resolveArgUrl() {
-  const arg = process.argv.find((item) => item.startsWith("--url="));
+  const argv = nwApp.argv || process.argv;
+  const arg = argv.find((item) => item.startsWith("--url="));
   if (!arg) return null;
   const value = arg.slice("--url=".length).trim();
   return value || null;
@@ -28,32 +31,22 @@ function resolveClientUrl() {
 
 function createMainWindow() {
   const clientUrl = resolveClientUrl();
-  const window = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    title: "Fluxer + BetterFluxer",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      nodeIntegration: true,
-      contextIsolation: false
-    }
-  });
-
-  window.loadURL(clientUrl);
+  
+  nwWindow.loadURL(clientUrl);  
 }
 
-app.whenReady().then(() => {
+nwWindow.on('loaded', () => { 
   createMainWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
-    }
-  });
 });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
+nwWindow.on('restore', () => {
+  nwWindow.focus();
+});
+
+nwWindow.on('close', () => {
+  if (nwApp.manifest.window?.minimize || process.platform === 'darwin') {
+    nwWindow.minimize();
+  } else {
+    nwApp.quit();
   }
 });

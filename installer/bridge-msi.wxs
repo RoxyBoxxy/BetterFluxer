@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="BetterFluxer Bridge"
+    Manufacturer="BetterFluxer"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="9E61D56D-0F7E-4E4F-BB15-8F87BB4D8CB7"
+    InstallerVersion="500"
+    Scope="perUser">
+
+    <SummaryInformation Description="BetterFluxer Bridge (NW.js)" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BetterFluxer Bridge is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Feature Id="MainFeature" Title="BetterFluxer Bridge" Level="1">
+      <ComponentGroupRef Id="BridgeFiles" />
+      <ComponentRef Id="BridgeStartMenuShortcut" />
+    </Feature>
+    <Icon Id="BridgeMenuIcon" SourceFile="$(var.RepoRoot)\bridge-nw\assets\betterfluxertransicon.ico" />
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="BetterFluxerRoot" Name="BetterFluxer">
+        <Directory Id="BridgeInstallDir" Name="bridge" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="BridgeProgramMenuDir" Name="BetterFluxer" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="BridgeFiles" Directory="BridgeInstallDir">
+      <Files Include="$(var.BridgeSourceDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="BridgeStartMenuShortcut" Directory="BridgeProgramMenuDir" Guid="*">
+      <Shortcut
+        Id="BridgeStartMenuShortcutLink"
+        Name="BetterFluxer Bridge"
+        Description="Launch BetterFluxer Bridge"
+        Target="[BridgeInstallDir]betterfluxer-bridge-app.exe"
+        WorkingDirectory="BridgeInstallDir"
+        Icon="BridgeMenuIcon" />
+      <RemoveFolder Id="BridgeProgramMenuDirRemove" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\BetterFluxer\Bridge" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

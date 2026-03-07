@@ -8,12 +8,35 @@ Runs a localhost-only companion service for plugins to fetch remote data safely.
 npm run bridge:start
 ```
 
+NW.js Bridge UI:
+
+```bash
+npm run bridge:app
+```
+
 Server:
 
 - Host: `127.0.0.1`
 - Port: `21864` (override with `BF_BRIDGE_PORT`)
 
 ## Windows Startup / Hidden Mode
+
+Cross-platform install entrypoint:
+
+```bash
+npm run bridge:install
+```
+
+Cross-platform uninstall:
+
+```bash
+npm run bridge:uninstall
+```
+
+Behavior:
+
+- Windows: installs/removes startup launcher (same as startup-install/remove)
+- Linux: writes/removes `~/.local/bin/betterfluxer-bridge` and `~/.config/autostart/betterfluxer-bridge.desktop`
 
 Install startup (Windows only):
 
@@ -27,10 +50,10 @@ Remove startup:
 npm run bridge:startup:remove
 ```
 
-The startup entry launches bridge hidden using a Startup-folder VBS launcher.
+The startup entry launches bridge hidden using the per-user Run registry key (`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`), not VBS.
 For packaged EXE builds, startup install copies bridge to:
 
-`%APPDATA%\BetterFluxer\bridge\BetterFluxerBridge.exe`
+`%LOCALAPPDATA%\BetterFluxer\bridge\BetterFluxerBridge.exe`
 
 Manual hidden run:
 
@@ -75,27 +98,20 @@ Fetches an allowlisted URL and returns JSON payload.
 
 ### `GET /windows/media`
 
-Windows-only endpoint that returns current Global System Media Transport Controls (GSMTC) session metadata.
-
-Auth:
-
-- `X-BetterFluxer-Token: <token>`
-- `Authorization: Bearer <token>`
-- `?token=<token>` (for clients that cannot set headers)
+Deprecated/disabled. Returns HTTP `410`.
 
 ### `GET /now-playing`
 
 Universal now-playing endpoint with platform adapters:
 
-- Windows: GSMTC
+- Windows: Discord RPC pipe capture + Tuna JSON fallback
 - Linux: MPRIS via `playerctl`
 - macOS: AppleScript (`Spotify`/`Music`)
 - Discord RPC pipes: captures `SET_ACTIVITY`/`CLEAR_ACTIVITY` from apps connecting to `discord-ipc-*` (when bridge can bind those pipes)
   - Game activities (`type: 0`) are tagged as `kind: "game"` for BetterFluxer status formatting.
 
-Windows fallback:
+Windows notes:
 
-- If GSMTC fails with `Class not registered`, bridge falls back to Tuna JSON file source.
 - Tuna JSON path defaults to `%APPDATA%\\Tuna\\current.json` (override: `BF_TUNA_JSON_PATH`).
 
 Auth:
