@@ -4,7 +4,8 @@
   "description": "A BetterDiscord-style plugin runtime for Fluxer",
   "main": "electron/injector-main.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start-o": "node src/index.js",
+    "start": "cd nw && nw .",
     "test": "node --test",
     "electron:start": "node scripts/electron-launcher.js electron/main.js",
     "electron:start:url": "node scripts/electron-launcher.js electron/main.js --url=",
@@ -25,7 +26,8 @@
   "devDependencies": {
     "@electron/packager": "^18.3.6",
     "electron": "^36.9.5",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "nw-builder": "^4.17.5"
   },
   "dependencies": {
     "undici": "^7.22.0"
