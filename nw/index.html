@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>BetterFluxer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+</head>
+
+<body data-mode="simple" class="bg-[#0e0e14] p-6 font-sans h-screen flex flex-col text-white overflow-hidden">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <img src="assets/betterfluxertrans.png" alt="BetterFluxer Logo" class="w-[90px] h-[50px] mt-1 object-contain">
+    </div>
+    <div class="flex gap-1 bg-[#0d1117] border border-white/5 p-1 rounded-xl">
+      <button id="modeSimpleBtn"
+        class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all bg-white/10 text-white">
+        Simple
+      </button>
+      <button id="modeAdvancedBtn"
+        class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all text-gray-400 hover:text-white">
+        Advanced
+      </button>
+    </div>
+  </div>
+
+  <div class="flex gap-4 flex-1 min-h-0">
+    <div class="flex flex-col gap-4 w-[280px] flex-shrink-0">
+      <div class="bg-[#0d1117] border border-white/5 rounded-2xl p-4 flex flex-col gap-4">
+        <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold">Configuration</p>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400 font-medium">Install Root</label>
+          <input id="installRoot" type="text" placeholder="auto-detect"
+            class="input-glow bg-[#21252E] rounded-lg px-3 py-2 text-white text-sm outline-none transition-all w-full placeholder-gray-600">
+        </div>
+
+        <div data-advanced class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400 font-medium">Version</label>
+          <input id="version" type="text" placeholder="optional"
+            class="input-glow bg-[#21252E] rounded-lg px-3 py-2 text-white text-sm outline-none transition-all w-full placeholder-gray-600">
+        </div>
+
+        <div data-advanced class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400 font-medium">App Path</label>
+          <input id="appPath" type="text" placeholder="auto-detect"
+            class="input-glow bg-[#21252E] rounded-lg px-3 py-2 text-white text-sm outline-none transition-all w-full placeholder-gray-600">
+        </div>
+
+        <label class="flex items-center gap-3 cursor-pointer group w-fit">
+          <div class="relative">
+            <input id="closeFirst" type="checkbox" checked class="sr-only peer">
+            <div class="w-9 h-5 bg-[#21252E] rounded-full peer-checked:bg-blue-500/80 transition-colors"></div>
+            <div
+              class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4">
+            </div>
+          </div>
+          <span class="text-xs text-gray-400 group-hover:text-white transition-colors">Close Fluxer Before
+            Injecting</span>
+        </label>
+      </div>
+      <div class="bg-[#0d1117] border border-white/5 rounded-2xl p-4 flex flex-col gap-2">
+        <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold mb-1">Actions</p>
+
+        <button id="injectBtn"
+          class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all border border-blue-500/20">
+          <i class="fa fa-download w-4 h-4 text-blue-400"></i>
+          Install BetterFluxer
+        </button>
+
+        <button id="uninjectBtn"
+          class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-[#21252E] text-gray-400 hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition-all border border-white/5">
+          <i class="fa fa-trash w-4 h-4 text-gray-400"></i>
+          Uninstall BetterFluxer
+        </button>
+
+        <div class="border-t border-white/5 pt-2 flex flex-col gap-2">
+          <button id="checkBtn" data-advanced
+            class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-[#21252E] text-yellow-400 hover:bg-yellow-400/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all border border-white/5">
+            <i class="fa fa-search w-4 h-4 text-yellow-400"></i>
+            Check Status
+          </button>
+
+          <button id="closeBtn" data-advanced
+            class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-[#21252E] text-red-400 hover:bg-red-400/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all border border-white/5">
+            <i class="fa fa-close w-4 h-4 text-red-400"></i>
+            Close Fluxer
+          </button>
+
+          <button id="installLatestBtn" data-advanced
+            class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-[#21252E] text-purple-400 hover:bg-purple-400/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all border border-white/5">
+            <i class="fa fa-cloud-upload w-4 h-4 text-purple-400"></i>
+            Install Latest
+          </button>
+        </div>
+      </div>
+
+    </div>
+    <div class="flex flex-col gap-4 flex-1 min-w-0">
+      <div id="statusGrid" class="bg-[#0d1117] border border-white/5 rounded-2xl p-4 grid grid-cols-2 gap-2"></div>
+      <div class="bg-[#0d1117] border border-white/5 rounded-2xl p-4 flex flex-col flex-1 min-h-0">
+        <p class="text-xs text-gray-500 uppercase tracking-widest font-semibold mb-3">Log</p>
+        <pre id="log" class="text-xs text-gray-400 flex-1 min-h-0 overflow-auto leading-relaxed"></pre>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="preload.js"></script>
+  <script src="injector-preload.js"></script>
+  <script src="renderer.js"></script>
+  <script src="app.js"></script>
+
+</body>
+
+<style type="text/tailwindcss">
+  @layer components {
+    .input-glow:focus {
+      box-shadow: 0 0 0px 1px rgba(59, 130, 246, 0.6), 0 0 20px 4px rgba(59, 130, 246, 0.2);
+    }
+  }
+</style>
+
+</html>

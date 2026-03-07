@@ -1,0 +1,11 @@
+{
+  "name": "betterfluxer-injector",
+  "main": "index.html", 
+  "window": {
+    "title": "BetterFluxer Injector",
+    "width": 1024,
+    "height": 768,
+    "resizable": false,
+    "icon": "assets/betterfluxertransicon.png"
+  }
+}
