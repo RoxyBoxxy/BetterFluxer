@@ -2,17 +2,17 @@
   "name": "betterfluxer",
   "version": "1.0.0",
   "description": "A BetterDiscord-style plugin runtime for Fluxer",
-  "main": "electron/injector-main.js",
+  "main": "src/index.js",
   "scripts": {
     "start-o": "node src/index.js",
     "start": "cd nw && npx nw .",
     "bridge:app": "cd bridge-nw && npx nw .",
     "test": "node --test",
-    "bridge:start": "node scripts/local-bridge.js",
-    "bridge:install": "node scripts/local-bridge.js --install",
-    "bridge:uninstall": "node scripts/local-bridge.js --uninstall",
-    "bridge:startup:install": "node scripts/local-bridge.js --startup-install",
-    "bridge:startup:remove": "node scripts/local-bridge.js --startup-remove",
+    "bridge:start": "node bridge-nw/scripts/local-bridge.js",
+    "bridge:install": "node bridge-nw/scripts/local-bridge.js --install",
+    "bridge:uninstall": "node bridge-nw/scripts/local-bridge.js --uninstall",
+    "bridge:startup:install": "node bridge-nw/scripts/local-bridge.js --startup-install",
+    "bridge:startup:remove": "node bridge-nw/scripts/local-bridge.js --startup-remove",
     "dist:win": "node scripts/package-win.js",
     "dist:bridge:win": "node scripts/package-bridge-win.js",
     "dist:bridge:msi": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-bridge-msi.ps1",
@@ -31,11 +31,10 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "@electron/packager": "^18.3.6",
-    "electron": "^36.9.5",
     "nw": "^0.91.0-sdk",
     "nw-builder": "^4.17.5",
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "rcedit": "^5.0.2"
   },
   "dependencies": {
     "undici": "^7.22.0"

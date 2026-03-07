@@ -1,5 +1,5 @@
 {
-  "name": "betterfluxer-injector",
+  "name": "BetterFluxerInjector",
   "main": "index.html", 
   "window": {
     "title": "BetterFluxer Injector",

@@ -1,7 +1,0 @@
-{
-  "name": "InjectedBadge",
-  "version": "1.0.0",
-  "description": "Adds an on-screen badge so you can confirm BetterFluxer injection is active.",
-  "author": "BetterFluxer",
-  "main": "index.js"
-}

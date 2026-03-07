@@ -28,14 +28,10 @@ function createStage(root, outDir) {
   ensureCleanDir(stageRoot);
 
   copyRecursive(path.join(root, "nw"), path.join(stageRoot, "nw"));
-  copyRecursive(path.join(root, "bridge-nw"), path.join(stageRoot, "bridge-nw"));
   copyRecursive(path.join(root, "scripts"), path.join(stageRoot, "scripts"));
   copyRecursive(path.join(root, "plugins"), path.join(stageRoot, "plugins"));
   copyRecursive(path.join(root, "src"), path.join(stageRoot, "src"));
   copyRecursive(path.join(root, "docs"), path.join(stageRoot, "docs"));
-  if (fs.existsSync(path.join(root, "bridge"))) {
-    copyRecursive(path.join(root, "bridge"), path.join(stageRoot, "bridge"));
-  }
 
   const rootReadme = path.join(root, "README.md");
   if (fs.existsSync(rootReadme)) {
@@ -84,7 +80,10 @@ async function main() {
     process.chdir(stageRoot);
     await nwbuild({
       mode: "build",
-      srcDir: "./**/*",
+      srcDir: [
+        "./**/*",
+        "./nw/.env"
+      ],
       outDir: path.join(outDir, "nw-linux64"),
       platform: "linux",
       arch: "x64",

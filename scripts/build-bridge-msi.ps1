@@ -63,6 +63,7 @@ Write-Host "[BetterFluxer] Building MSI with high compression..."
   $wxsPath `
   -arch x64 `
   -d BridgeSourceDir=$stageDir `
+  -d RepoRoot=$root `
   -d ProductVersion=$version `
   -o $msiOut
 

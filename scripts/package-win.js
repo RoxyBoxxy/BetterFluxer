@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 function copyRecursive(src, dest) {
   fs.cpSync(src, dest, { recursive: true, force: true });
@@ -23,19 +24,66 @@ function loadNwBuilder() {
   }
 }
 
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    shell: false,
+    ...options
+  });
+  if (result.error) {
+    throw new Error(`${command} failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+  }
+}
+
+function pruneLocales(buildDir) {
+  const localesDir = path.join(buildDir, "locales");
+  if (!fs.existsSync(localesDir)) return;
+  const keep = new Set(["en-US.pak"]);
+  for (const name of fs.readdirSync(localesDir)) {
+    if (!keep.has(name)) {
+      fs.rmSync(path.join(localesDir, name), { force: true, recursive: true });
+    }
+  }
+}
+
+function pruneUnneededFiles(buildDir) {
+  const removable = ["credits.html"];
+  for (const name of removable) {
+    const target = path.join(buildDir, name);
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { force: true, recursive: true });
+    }
+  }
+}
+
+function createZipFromBuildDir(buildDir, zipPath) {
+  if (fs.existsSync(zipPath)) {
+    fs.rmSync(zipPath, { force: true });
+  }
+  run(
+    "powershell",
+    [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `Compress-Archive -Path '${buildDir.replace(/'/g, "''")}\\*' -DestinationPath '${zipPath.replace(/'/g, "''")}' -Force`
+    ]
+  );
+}
+
 function createStage(root, outDir) {
   const stageRoot = path.join(root, ".tmp-nw-stage-win");
   ensureCleanDir(stageRoot);
 
   copyRecursive(path.join(root, "nw"), path.join(stageRoot, "nw"));
-  copyRecursive(path.join(root, "bridge-nw"), path.join(stageRoot, "bridge-nw"));
   copyRecursive(path.join(root, "scripts"), path.join(stageRoot, "scripts"));
   copyRecursive(path.join(root, "plugins"), path.join(stageRoot, "plugins"));
   copyRecursive(path.join(root, "src"), path.join(stageRoot, "src"));
   copyRecursive(path.join(root, "docs"), path.join(stageRoot, "docs"));
-  if (fs.existsSync(path.join(root, "bridge"))) {
-    copyRecursive(path.join(root, "bridge"), path.join(stageRoot, "bridge"));
-  }
 
   const rootReadme = path.join(root, "README.md");
   if (fs.existsSync(rootReadme)) {
@@ -78,22 +126,32 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const stageRoot = createStage(root, outDir);
+  const buildOutDir = path.join(outDir, "nw-win64");
+  const zipOutPath = path.join(outDir, "nw-win64.zip");
   const nwbuild = loadNwBuilder();
   const prevCwd = process.cwd();
   try {
     process.chdir(stageRoot);
     await nwbuild({
       mode: "build",
-      srcDir: "./**/*",
-      outDir: path.join(outDir, "nw-win64"),
+      srcDir: [
+        "./**/*",
+        "./nw/.env"
+      ],
+      outDir: buildOutDir,
       platform: "win",
       arch: "x64",
-      zip: true,
+      flavor: "normal",
+      winIco: "./nw/assets/betterfluxertransicon.ico",
+      zip: false,
       logLevel: "info"
     });
   } finally {
     process.chdir(prevCwd);
   }
+  pruneLocales(buildOutDir);
+  pruneUnneededFiles(buildOutDir);
+  createZipFromBuildDir(buildOutDir, zipOutPath);
   fs.rmSync(stageRoot, { recursive: true, force: true });
   console.log("[BetterFluxer] NW.js Windows build complete.");
 }

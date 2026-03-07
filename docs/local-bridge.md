@@ -98,27 +98,20 @@ Fetches an allowlisted URL and returns JSON payload.
 
 ### `GET /windows/media`
 
-Windows-only endpoint that returns current Global System Media Transport Controls (GSMTC) session metadata.
-
-Auth:
-
-- `X-BetterFluxer-Token: <token>`
-- `Authorization: Bearer <token>`
-- `?token=<token>` (for clients that cannot set headers)
+Deprecated/disabled. Returns HTTP `410`.
 
 ### `GET /now-playing`
 
 Universal now-playing endpoint with platform adapters:
 
-- Windows: GSMTC
+- Windows: Discord RPC pipe capture + Tuna JSON fallback
 - Linux: MPRIS via `playerctl`
 - macOS: AppleScript (`Spotify`/`Music`)
 - Discord RPC pipes: captures `SET_ACTIVITY`/`CLEAR_ACTIVITY` from apps connecting to `discord-ipc-*` (when bridge can bind those pipes)
   - Game activities (`type: 0`) are tagged as `kind: "game"` for BetterFluxer status formatting.
 
-Windows fallback:
+Windows notes:
 
-- If GSMTC fails with `Class not registered`, bridge falls back to Tuna JSON file source.
 - Tuna JSON path defaults to `%APPDATA%\\Tuna\\current.json` (override: `BF_TUNA_JSON_PATH`).
 
 Auth:

@@ -58,28 +58,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Windows package
+      - name: Build injector (NW zip)
         run: npm run dist:win
 
-      - name: Build Bridge EXE
-        run: npx --yes pkg@5.8.1 scripts/local-bridge.js --targets node18-win-x64 --output dist/bridge/BetterFluxerBridge.exe
+      - name: Build injector (one-file exe)
+        run: npm run dist:win:onefile
+
+      - name: Build bridge (NW zip)
+        run: npm run dist:bridge:win
+
+      - name: Build bridge (MSI)
+        run: npm run dist:bridge:msi
 
       - name: List dist contents (Windows)
         shell: pwsh
         run: Get-ChildItem -Recurse dist | Select-Object FullName
 
-      - name: Upload Windows artifact
+      - name: Upload injector windows zip
         uses: actions/upload-artifact@v4
         with:
-          name: betterfluxer-windows-x64
-          path: dist/*win32-x64/**
+          name: betterfluxer-injector-windows-zip
+          path: dist/nw-win64.zip
           if-no-files-found: error
 
-      - name: Upload Bridge EXE artifact
+      - name: Upload injector one-file exe
         uses: actions/upload-artifact@v4
         with:
-          name: betterfluxer-bridge-windows-exe
-          path: dist/bridge/BetterFluxerBridge.exe
+          name: betterfluxer-injector-windows-onefile
+          path: dist/BetterFluxerInjector.exe
+          if-no-files-found: error
+
+      - name: Upload bridge windows zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: betterfluxer-bridge-windows-zip
+          path: dist/nw-bridge-win64.zip
+          if-no-files-found: error
+
+      - name: Upload bridge MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: betterfluxer-bridge-windows-msi
+          path: dist/BetterFluxerBridge-*.msi
           if-no-files-found: error
 
   build-linux:
@@ -99,17 +119,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Linux package
+      - name: Build injector linux package
         run: npm run dist:linux
+
+      - name: Build bridge linux package
+        run: npm run dist:bridge:linux
 
       - name: List dist contents (Linux)
         run: find dist -maxdepth 4 -type f | sort
 
-      - name: Upload Linux artifact
+      - name: Upload injector linux zip
         uses: actions/upload-artifact@v4
         with:
-          name: betterfluxer-linux-x64
-          path: dist/*linux-x64/**
+          name: betterfluxer-injector-linux-zip
+          path: dist/nw-linux64.zip
+          if-no-files-found: error
+
+      - name: Upload bridge linux zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: betterfluxer-bridge-linux-zip
+          path: dist/nw-bridge-linux64.zip
           if-no-files-found: error
 
   publish-release:
@@ -120,29 +150,44 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || (github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name) }}
     steps:
-      - name: Download Windows artifact
+      - name: Download injector windows zip
         uses: actions/download-artifact@v4
         with:
-          name: betterfluxer-windows-x64
-          path: release-assets/windows
+          name: betterfluxer-injector-windows-zip
+          path: release-assets
 
-      - name: Download Linux artifact
+      - name: Download injector one-file exe
         uses: actions/download-artifact@v4
         with:
-          name: betterfluxer-linux-x64
-          path: release-assets/linux
+          name: betterfluxer-injector-windows-onefile
+          path: release-assets
 
-      - name: Download Bridge EXE artifact
+      - name: Download bridge windows zip
         uses: actions/download-artifact@v4
         with:
-          name: betterfluxer-bridge-windows-exe
-          path: release-assets/bridge
+          name: betterfluxer-bridge-windows-zip
+          path: release-assets
 
-      - name: Create archives
-        run: |
-          cd release-assets
-          zip -r betterfluxer-windows-x64.zip windows
-          tar -czf betterfluxer-linux-x64.tar.gz linux
+      - name: Download bridge MSI
+        uses: actions/download-artifact@v4
+        with:
+          name: betterfluxer-bridge-windows-msi
+          path: release-assets
+
+      - name: Download injector linux zip
+        uses: actions/download-artifact@v4
+        with:
+          name: betterfluxer-injector-linux-zip
+          path: release-assets
+
+      - name: Download bridge linux zip
+        uses: actions/download-artifact@v4
+        with:
+          name: betterfluxer-bridge-linux-zip
+          path: release-assets
+
+      - name: List release assets
+        run: find release-assets -type f | sort
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -151,6 +196,9 @@ jobs:
           generate_release_notes: true
           overwrite_files: true
           files: |
-            release-assets/betterfluxer-windows-x64.zip
-            release-assets/betterfluxer-linux-x64.tar.gz
-            release-assets/bridge/BetterFluxerBridge.exe
+            release-assets/nw-win64.zip
+            release-assets/BetterFluxerInjector.exe
+            release-assets/nw-bridge-win64.zip
+            release-assets/BetterFluxerBridge-*.msi
+            release-assets/nw-linux64.zip
+            release-assets/nw-bridge-linux64.zip

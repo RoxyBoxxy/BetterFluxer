@@ -44,26 +44,34 @@ function main() {
   }
 
   const pkgBin = resolvePkgBin(root);
-  const outputExe = path.join(distDir, "BetterFluxerInjector-OneFile.exe");
+  const outputExe = path.join(distDir, "BetterFluxerInjector.exe");
   const launcherPath = path.join(root, "scripts", "onefile-launcher.js");
+  const bundledZipPath = path.join(root, "scripts", "nw-win64.zip");
   const target = "node18-win-x64";
+  fs.copyFileSync(nwZip, bundledZipPath);
 
-  run(
-    pkgBin,
-    [
-      launcherPath,
-      "--targets",
-      target,
-      "--output",
-      outputExe,
-      "--public",
-      "--compress",
-      "GZip",
-      "--assets",
-      nwZip
-    ],
-    { cwd: root }
-  );
+  try {
+    run(
+      pkgBin,
+      [
+        launcherPath,
+        "--targets",
+        target,
+        "--output",
+        outputExe,
+        "--public",
+        "--compress",
+        "GZip",
+        "--assets",
+        path.join("scripts", "nw-win64.zip")
+      ],
+      { cwd: root }
+    );
+  } finally {
+    try {
+      fs.rmSync(bundledZipPath, { force: true });
+    } catch (_) {}
+  }
 
   console.log(`[BetterFluxer] One-file EXE built: ${outputExe}`);
 }

@@ -165,10 +165,24 @@ function ensureFileExists(filePath, label) {
 
 function copyRuntime(sourceRoot, injectedRoot) {
   fs.mkdirSync(injectedRoot, { recursive: true });
-  const pluginsSource = path.join(sourceRoot, "plugins");
-  if (fs.existsSync(pluginsSource)) {
+  const pluginsDest = path.join(injectedRoot, "plugins");
+  fs.mkdirSync(pluginsDest, { recursive: true });
+  const pluginSources = [path.join(sourceRoot, "plugins"), path.join(sourceRoot, "nw", "plugins")];
+  const copied = new Set();
+
+  for (const pluginsSource of pluginSources) {
+    if (!fs.existsSync(pluginsSource)) continue;
     try {
-      fs.cpSync(pluginsSource, path.join(injectedRoot, "plugins"), { recursive: true, force: true });
+      const entries = fs.readdirSync(pluginsSource, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (copied.has(entry.name)) continue;
+        fs.cpSync(path.join(pluginsSource, entry.name), path.join(pluginsDest, entry.name), {
+          recursive: true,
+          force: true
+        });
+        copied.add(entry.name);
+      }
     } catch (error) {
       const message = String((error && error.message) || error || "");
       const sourceLooksPacked = String(pluginsSource).toLowerCase().includes(".asar");
@@ -222,37 +236,39 @@ function writeBootstrap() {
 }
 
 function collectInlinePlugins(sourceRoot) {
-  const pluginsRoot = path.join(sourceRoot, "plugins");
-  if (!fs.existsSync(pluginsRoot)) {
-    return [];
-  }
+  const pluginRoots = [path.join(sourceRoot, "plugins"), path.join(sourceRoot, "nw", "plugins")];
+  const pluginMap = new Map();
 
-  const entries = fs.readdirSync(pluginsRoot, { withFileTypes: true });
-  const plugins = [];
+  for (const pluginsRoot of pluginRoots) {
+    if (!fs.existsSync(pluginsRoot)) continue;
+    const entries = fs.readdirSync(pluginsRoot, { withFileTypes: true });
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const dir = path.join(pluginsRoot, entry.name);
-    const manifestPath = path.join(dir, "manifest.json");
-    const indexPath = path.join(dir, "index.js");
-    if (!fs.existsSync(indexPath)) continue;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dir = path.join(pluginsRoot, entry.name);
+      const manifestPath = path.join(dir, "manifest.json");
+      const indexPath = path.join(dir, "index.js");
+      if (!fs.existsSync(indexPath)) continue;
 
-    let manifest = {};
-    if (fs.existsSync(manifestPath)) {
-      try {
-        manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-      } catch (_) {
-        manifest = {};
+      let manifest = {};
+      if (fs.existsSync(manifestPath)) {
+        try {
+          manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+        } catch (_) {
+          manifest = {};
+        }
       }
-    }
 
-    plugins.push({
-      id: manifest.name || entry.name,
-      code: fs.readFileSync(indexPath, "utf8")
-    });
+      const id = String(manifest.name || entry.name);
+      if (pluginMap.has(id)) continue;
+      pluginMap.set(id, {
+        id,
+        code: fs.readFileSync(indexPath, "utf8")
+      });
+    }
   }
 
-  return plugins;
+  return Array.from(pluginMap.values());
 }
 
 async function requestTextViaUndici(url) {

@@ -25,7 +25,7 @@ const {
 } = require("../scripts/lib/fluxer-injector-utils");
 
 const execFileAsync = promisify(execFile);
-const SOURCE_ROOT = path.resolve(process.cwd(), "..");
+const SOURCE_ROOT = path.resolve(__dirname, "..");
 const POSIX_PROCESS_NAMES = ["Fluxer", "fluxer", "fluxer_app"];
 const POSIX_FALLBACK_PATTERN = "fluxer";
 const LINUX_INSTALL_ROOT = path.join(os.homedir(), ".fluxer");

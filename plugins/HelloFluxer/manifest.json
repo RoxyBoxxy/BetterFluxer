@@ -1,7 +1,0 @@
-{
-  "name": "HelloFluxer",
-  "version": "1.0.0",
-  "description": "Example BetterFluxer plugin",
-  "author": "BetterFluxer",
-  "main": "index.js"
-}
