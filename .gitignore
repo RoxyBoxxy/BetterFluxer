@@ -14,7 +14,7 @@ cache/
 
 # Local app copy / extraction workspace
 app_do_not_edit/
-
+MyPlugins/
 # Logs
 *.log
 npm-debug.log*
