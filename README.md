@@ -6,7 +6,7 @@ BetterFluxer is a BetterDiscord-style runtime for Fluxer. It provides:
 - Safe monkey patching API (`before`, `after`, `instead`, `unpatchAll`)
 - Per-plugin persistent JSON storage
 - Electron preload integration pattern
-- Docs: see [`docs/README.md`](/c:/Users/Rox/Documents/BetterFluxer/docs/README.md)
+- Docs: see [`docs/README.md`](./docs/README.md)
 
 ## Quick start
 
@@ -37,7 +37,7 @@ npm run electron:start
 3. Optional: point to a specific Fluxer client URL:
 
 ```bash
-npm run electron:start -- --url=https://your-fluxer-client-url
+npm run electron:start:url -- --url=https://your-fluxer-client-url
 ```
 
 You can also set:
@@ -104,8 +104,10 @@ The GUI includes:
 Default install root it searches:
 
 - `C:\Users\<you>\AppData\Local\fluxer_app`
+- `~/.fluxer/fluxer` (Linux preferred)
 - `~/.local/share/fluxer_app` (Linux)
 - `~/.config/fluxer_app` (Linux fallback)
+- `~/.config/Fluxer` (Linux fallback)
 - Auto-selects newest `app-x.y.z` folder unless you pass `--version`.
 - If your layout is different, use `--app-path` to point directly at the Fluxer app folder.
 
@@ -144,6 +146,8 @@ What gets modified:
 - `resources\app.asar.unpacked\src-electron\dist\preload\index.js`
 : backup file is created once at `index.js.betterfluxer.bak`
 - `resources\app.asar.unpacked\betterfluxer\` (runtime + plugins)
+
+If your Fluxer build only contains `resources\app.asar\...` (without `app.asar.unpacked` preload), this injector cannot patch that packed layout yet.
 
 Important:
 
@@ -212,7 +216,7 @@ Each plugin receives `api` in its constructor:
 
 ## Integrating with Fluxer (Electron)
 
-1. Copy and adapt [`src/integration/electron-preload.example.js`](/c:/Users/Rox/Documents/BetterFluxer/src/integration/electron-preload.example.js).
+1. Copy and adapt [`src/integration/electron-preload.example.js`](./src/integration/electron-preload.example.js).
 2. In Fluxer, set BrowserWindow preload to your adapted preload file.
 3. Pass Fluxer internals through `appContext` so plugins can patch app functions/components.
 4. Package a writable runtime folder (example: `<resources>/betterfluxer`) containing `plugins/` and `data/`.
