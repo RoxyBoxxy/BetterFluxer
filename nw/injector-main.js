@@ -3,7 +3,8 @@ const https = require("https");
 const http = require("http");
 const os = require("os");
 const path = require("path");
-const { execFile } = require("child_process");
+const crypto = require("crypto");
+const { execFile, spawn, spawnSync } = require("child_process");
 const { promisify } = require("util");
 const {
   DEFAULT_INSTALL_ROOTS,
@@ -22,6 +23,9 @@ const {
   patchMainIpcHandlers,
   unpatchMainIpcHandlers,
   buildStoreIndexSnapshot
+  ,
+  getDefaultSplashIconDataUrl,
+  DEFAULT_SPLASH_PULSE_COLOR
 } = require("../scripts/lib/fluxer-injector-utils");
 
 const execFileAsync = promisify(execFile);
@@ -35,6 +39,60 @@ const LINUX_LATEST_APPIMAGE_URL = "https://api.fluxer.app/dl/desktop/stable/linu
 const LINUX_DOWNLOADS_DIR = path.join(LINUX_INSTALL_ROOT, "downloads");
 const LINUX_DOWNLOADED_APPIMAGE_PATH = path.join(LINUX_DOWNLOADS_DIR, "fluxer-latest-x64.AppImage");
 const DEFAULT_STORE_INDEX_URL = "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/refs/heads/main/plugins.json";
+const DEFAULT_CUSTOM_SPLASH_ICON_DATA_URL = getDefaultSplashIconDataUrl(SOURCE_ROOT);
+const DEFAULT_CUSTOM_SPLASH_PULSE_COLOR = DEFAULT_SPLASH_PULSE_COLOR;
+function readJsonFileSafe(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+
+function getGitTagVersion(rootDir) {
+  try {
+    const res = spawnSync("git", ["describe", "--tags", "--abbrev=0"], {
+      cwd: rootDir,
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: false,
+      encoding: "utf8"
+    });
+    if (res.error || res.status !== 0) return "";
+    return String(res.stdout || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+function resolveBetterFluxerVersion(preferredVersion) {
+  const preferred = String(preferredVersion || "").trim();
+  if (preferred) return preferred;
+
+  const buildInfo = readJsonFileSafe(path.join(SOURCE_ROOT, "nw", "build-info.json"));
+  const buildVersion = String((buildInfo && buildInfo.version) || "").trim();
+  if (buildVersion) return buildVersion;
+
+  const tag = getGitTagVersion(SOURCE_ROOT);
+  if (tag) return tag;
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(SOURCE_ROOT, "package.json"), "utf8"));
+    if (pkg && typeof pkg.version === "string" && pkg.version.trim()) {
+      return pkg.version.trim();
+    }
+  } catch (_) {}
+  return "dev";
+}
+
+function computeInjectorChecksum(version, inlinePlugins) {
+  try {
+    const payload = JSON.stringify(inlinePlugins || []);
+    return crypto.createHash("sha256").update(String(version || "dev")).update("\n").update(payload).digest("hex").slice(0, 12);
+  } catch (_) {
+    return "";
+  }
+}
 
 async function runOptionalExec(command, args) {
   try {
@@ -580,6 +638,63 @@ async function closeFluxerBeforeInject(options = {}) {
   }
 }
 
+function fileExists(targetPath) {
+  try {
+    return Boolean(targetPath) && fs.existsSync(targetPath);
+  } catch (_) {
+    return false;
+  }
+}
+
+function launchFluxerApp({ appPath, launcherPath }) {
+  const resolvedAppPath = appPath ? path.resolve(appPath) : "";
+  if (!resolvedAppPath) {
+    return { launched: false, message: "No appPath available to launch Fluxer." };
+  }
+
+  if (process.platform === "win32") {
+    const candidates = [
+      path.join(resolvedAppPath, "Fluxer.exe"),
+      path.join(resolvedAppPath, "fluxer.exe"),
+      path.join(resolvedAppPath, "Fluxer"),
+      path.join(resolvedAppPath, "fluxer")
+    ];
+    const exe = candidates.find((candidate) => fileExists(candidate));
+    if (!exe) {
+      return { launched: false, message: `Fluxer executable not found in ${resolvedAppPath}` };
+    }
+    const child = spawn(exe, [], {
+      cwd: resolvedAppPath,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    child.unref();
+    return { launched: true, command: exe, message: "Fluxer relaunched." };
+  }
+
+  if (process.platform === "linux") {
+    const candidates = [
+      launcherPath && path.resolve(launcherPath),
+      path.join(resolvedAppPath, "fluxer-launch.sh"),
+      path.join(resolvedAppPath, "AppRun")
+    ].filter(Boolean);
+    const command = candidates.find((candidate) => fileExists(candidate));
+    if (!command) {
+      return { launched: false, message: `No Linux launch script found for ${resolvedAppPath}` };
+    }
+    const child = spawn(command, [], {
+      cwd: resolvedAppPath,
+      detached: true,
+      stdio: "ignore"
+    });
+    child.unref();
+    return { launched: true, command, message: "Fluxer relaunched." };
+  }
+
+  return { launched: false, message: `Auto launch is not implemented for ${process.platform}.` };
+}
+
 function resolveTarget(options = {}) {
   const installRoot = resolveInstallRoot(options.installRoot);
   const versions = getInstalledVersions(options.installRoot);
@@ -717,19 +832,40 @@ async function runInject(options = {}) {
   const launcherPath = ensureLinuxSafeLauncher(target.appPath);
   writeBootstrap(paths.bootstrapPath);
   const inlinePlugins = collectInlinePlugins(SOURCE_ROOT);
+  const betterFluxerVersion = resolveBetterFluxerVersion(options && options.betterFluxerVersion);
+  const betterFluxerChecksum = computeInjectorChecksum(betterFluxerVersion, inlinePlugins);
   const storeIndexSnapshot = await buildStoreIndexSnapshot(DEFAULT_STORE_INDEX_URL);
   console.log(`[BetterFluxer] Store snapshot items: ${storeIndexSnapshot.length}`);
   const mainPatchResult = patchMainIpcHandlers(paths.mainIpcHandlersPath, paths.backupMainIpcHandlersPath);
   const patchResult = patchPreload(paths.preloadPath, paths.backupPreloadPath, inlinePlugins, {
     enableIpcBridge: mainPatchResult && mainPatchResult.skipped !== true,
-    storeIndexSnapshot
+    storeIndexSnapshot,
+    betterFluxerVersion,
+    betterFluxerChecksum,
+    customSplashIconDataUrl: String((options && options.customSplashIconDataUrl) || DEFAULT_CUSTOM_SPLASH_ICON_DATA_URL),
+    customSplashPulseColor: String((options && options.customSplashPulseColor) || DEFAULT_CUSTOM_SPLASH_PULSE_COLOR)
   });
   const status = await readStatus(target);
+  let relaunch = { launched: false, message: "Skipped relaunch." };
+  try {
+    if (!status.fluxerRunning) {
+      relaunch = launchFluxerApp({ appPath: target.appPath, launcherPath });
+    } else {
+      relaunch = { launched: false, message: "Fluxer already running; relaunch skipped." };
+    }
+  } catch (error) {
+    relaunch = {
+      launched: false,
+      message: `Relaunch failed: ${String((error && error.message) || error || "unknown")}`
+    };
+  }
+
   return {
     ok: true,
     changed: patchResult.changed,
     launcherPath: launcherPath || null,
-    status
+    status,
+    relaunch
   };
 }
 
@@ -773,7 +909,9 @@ module.exports = {
     defaultInstallRoot: resolveInstallRoot(),
     defaultInstallRoots: DEFAULT_INSTALL_ROOTS,
     supportsAutoClose: process.platform === "win32" || process.platform === "linux" || process.platform === "darwin",
-    linuxLatestAppImageUrl: LINUX_LATEST_APPIMAGE_URL
+    linuxLatestAppImageUrl: LINUX_LATEST_APPIMAGE_URL,
+    defaultCustomSplashIconDataUrl: DEFAULT_CUSTOM_SPLASH_ICON_DATA_URL,
+    defaultCustomSplashPulseColor: DEFAULT_CUSTOM_SPLASH_PULSE_COLOR
   }),
   getStatus: (options) => readStatus(options || {}),
   closeFluxer: () => closeFluxer(),

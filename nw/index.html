@@ -47,6 +47,18 @@
             class="input-glow bg-[#21252E] rounded-lg px-3 py-2 text-white text-sm outline-none transition-all w-full placeholder-gray-600">
         </div>
 
+        <div data-advanced class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400 font-medium">Splash Icon (base64 / data URL)</label>
+          <input id="customSplashIconDataUrl" type="text" placeholder="optional"
+            class="input-glow bg-[#21252E] rounded-lg px-3 py-2 text-white text-sm outline-none transition-all w-full placeholder-gray-600">
+        </div>
+
+        <div data-advanced class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400 font-medium">Splash Pulse Color</label>
+          <input id="customSplashPulseColor" type="text" placeholder="#5865f2"
+            class="input-glow bg-[#21252E] rounded-lg px-3 py-2 text-white text-sm outline-none transition-all w-full placeholder-gray-600">
+        </div>
+
         <label class="flex items-center gap-3 cursor-pointer group w-fit">
           <div class="relative">
             <input id="closeFirst" type="checkbox" checked class="sr-only peer">
@@ -106,10 +118,8 @@
     </div>
   </div>
 
-  <script src="preload.js"></script>
   <script src="injector-preload.js"></script>
   <script src="renderer.js"></script>
-  <script src="app.js"></script>
 
 </body>
 

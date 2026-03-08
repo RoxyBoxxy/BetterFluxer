@@ -58,12 +58,12 @@ For packaged EXE builds, startup install copies bridge to:
 Manual hidden run:
 
 ```bash
-node scripts/local-bridge.js --hidden
+node bridge-nw/scripts/local-bridge.js --hidden
 ```
 
 On first start it generates a token in:
 
-`%APPDATA%\BetterFluxer\data\bridge-token.txt`
+`%APPDATA%\BetterFluxer\data\bridge-token.txt` (Windows)
 
 Override base dir:
 

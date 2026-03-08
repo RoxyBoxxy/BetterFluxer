@@ -1,6 +1,8 @@
 const installRootEl = document.getElementById("installRoot");
 const versionEl = document.getElementById("version");
 const appPathEl = document.getElementById("appPath");
+const customSplashIconDataUrlEl = document.getElementById("customSplashIconDataUrl");
+const customSplashPulseColorEl = document.getElementById("customSplashPulseColor");
 const closeFirstEl = document.getElementById("closeFirst");
 const statusGridEl = document.getElementById("statusGrid");
 const logEl = document.getElementById("log");
@@ -14,12 +16,16 @@ const injectBtn = document.getElementById("injectBtn");
 const uninjectBtn = document.getElementById("uninjectBtn");
 
 const UI_MODE_KEY = "betterfluxer:injectorMode";
+const CUSTOM_SPLASH_ICON_KEY = "betterfluxer:customSplashIconDataUrl";
+const CUSTOM_SPLASH_PULSE_COLOR_KEY = "betterfluxer:customSplashPulseColor";
 let supportsAutoClose = true;
 let promptedAppImagePath = null;
 let isLinux = false;
 let linuxLatestAppImageUrl = null;
 let currentMode = "simple";
 let lastStatus = null;
+let autoInjectAttempted = false;
+let startupWakeInProgress = false;
 
 function log(message) {
   const timestamp = new Date().toLocaleTimeString();
@@ -27,12 +33,37 @@ function log(message) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function statusCardsRendered() {
+  return Boolean(statusGridEl && statusGridEl.children && statusGridEl.children.length > 0);
+}
+
+function ensureInjectorApi() {
+  if (window.InjectorApi) return true;
+  log("Injector API not ready yet.");
+  return false;
+}
+
+async function waitForInjectorApi(timeoutMs = 8000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (window.InjectorApi) return true;
+    await delay(120);
+  }
+  return Boolean(window.InjectorApi);
+}
+
 function getOptions() {
   return {
     installRoot: installRootEl.value.trim(),
     version: versionEl.value.trim() || undefined,
     appPath: appPathEl.value.trim() || undefined,
-    closeFluxerFirst: closeFirstEl.checked
+    closeFluxerFirst: closeFirstEl.checked,
+    customSplashIconDataUrl: customSplashIconDataUrlEl ? customSplashIconDataUrlEl.value.trim() || undefined : undefined,
+    customSplashPulseColor: customSplashPulseColorEl ? customSplashPulseColorEl.value.trim() || undefined : undefined
   };
 }
 
@@ -137,6 +168,88 @@ async function refreshStatus() {
   }
 }
 
+async function maybeAutoInject(status) {
+  if (autoInjectAttempted) return status;
+  if (!status || status.injected) return status;
+  if (!window.InjectorApi || typeof window.InjectorApi.inject !== "function") return status;
+  autoInjectAttempted = true;
+
+  log("Auto-inject: BetterFluxer not detected, running inject...");
+  try {
+    const autoOptions = {
+      ...getOptions(),
+      closeFluxerFirst: false
+    };
+    const result = await window.InjectorApi.inject(autoOptions);
+    log(result.changed ? "Auto-inject complete. Preload patched." : "Auto-inject complete. Preload already patched.");
+    if (result && result.relaunch) {
+      log(`Auto-inject relaunch: ${result.relaunch.message}`);
+    }
+    if (result && result.status) {
+      renderStatus(result.status);
+      return result.status;
+    }
+  } catch (error) {
+    log(`Auto-inject skipped: ${error.message}`);
+  }
+  return status;
+}
+
+async function runStatusPipeline() {
+  const status = await refreshStatus();
+  const afterInject = await maybeAutoInject(status);
+  if (afterInject && afterInject !== status) {
+    return afterInject;
+  }
+  if (status && status.injected) {
+    return status;
+  }
+  // Re-read status after auto-inject attempt so UI always reflects final state.
+  try {
+    return await refreshStatus();
+  } catch (_) {
+    return status;
+  }
+}
+
+async function startupStatusAndAutoInject() {
+  const attempts = 4;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      await runStatusPipeline();
+      return;
+    } catch (error) {
+      log(`Startup check retry ${i + 1}/${attempts}: ${error.message}`);
+      await delay(700);
+    }
+  }
+  log("Startup check failed after retries. Use Check Status to retry manually.");
+}
+
+function startStartupWakeLoop() {
+  if (startupWakeInProgress) return;
+  startupWakeInProgress = true;
+  let attempts = 0;
+  const maxAttempts = 15;
+  const timer = setInterval(async () => {
+    attempts += 1;
+    try {
+      await runStatusPipeline();
+      if (statusCardsRendered()) {
+        clearInterval(timer);
+        startupWakeInProgress = false;
+        log("Startup wake: status cards ready.");
+        return;
+      }
+    } catch (_) {}
+    if (attempts >= maxAttempts) {
+      clearInterval(timer);
+      startupWakeInProgress = false;
+      log("Startup wake: timed out. Use Check Status.");
+    }
+  }, 700);
+}
+
 async function setBusy(isBusy) {
   checkBtn.disabled = isBusy;
   closeBtn.disabled = isBusy || !supportsAutoClose || currentMode !== "advanced";
@@ -150,6 +263,12 @@ async function initDefaults() {
     const defaults = await window.InjectorApi.getDefaults();
     if (!installRootEl.value.trim()) {
       installRootEl.value = defaults.defaultInstallRoot || "";
+    }
+    if (customSplashIconDataUrlEl && !customSplashIconDataUrlEl.value.trim()) {
+      customSplashIconDataUrlEl.value = defaults.defaultCustomSplashIconDataUrl || "";
+    }
+    if (customSplashPulseColorEl && !customSplashPulseColorEl.value.trim()) {
+      customSplashPulseColorEl.value = defaults.defaultCustomSplashPulseColor || "";
     }
     isLinux = defaults.platform === "linux";
     linuxLatestAppImageUrl = defaults.linuxLatestAppImageUrl || null;
@@ -174,7 +293,7 @@ async function initDefaults() {
 }
 
 checkBtn.addEventListener("click", async () => {
-  await refreshStatus();
+  await runStatusPipeline();
 });
 
 closeBtn.addEventListener("click", async () => {
@@ -215,6 +334,9 @@ injectBtn.addEventListener("click", async () => {
   try {
     const result = await window.InjectorApi.inject(getOptions());
     log(result.changed ? "Inject complete. Preload patched." : "Inject complete. Preload already patched.");
+    if (result && result.relaunch) {
+      log(`Relaunch: ${result.relaunch.message}`);
+    }
     renderStatus(result.status);
   } catch (error) {
     log(`Inject error: ${error.message}`);
@@ -240,6 +362,44 @@ modeSimpleBtn.addEventListener("click", () => applyMode("simple"));
 modeAdvancedBtn.addEventListener("click", () => applyMode("advanced"));
 
 initDefaults().finally(() => {
+  try {
+    if (customSplashIconDataUrlEl) {
+      customSplashIconDataUrlEl.value = localStorage.getItem(CUSTOM_SPLASH_ICON_KEY) || "";
+      customSplashIconDataUrlEl.addEventListener("input", () => {
+        localStorage.setItem(CUSTOM_SPLASH_ICON_KEY, customSplashIconDataUrlEl.value || "");
+      });
+    }
+    if (customSplashPulseColorEl) {
+      customSplashPulseColorEl.value = localStorage.getItem(CUSTOM_SPLASH_PULSE_COLOR_KEY) || "";
+      customSplashPulseColorEl.addEventListener("input", () => {
+        localStorage.setItem(CUSTOM_SPLASH_PULSE_COLOR_KEY, customSplashPulseColorEl.value || "");
+      });
+    }
+  } catch (_) {}
+
   applyMode(localStorage.getItem(UI_MODE_KEY) || "simple");
-  refreshStatus();
+  waitForInjectorApi(8000).then((ready) => {
+    if (!ready) {
+      log("Injector API unavailable after startup wait. Use Check Status once API appears.");
+      return;
+    }
+    // Mirror the known-working manual path: trigger Check Status automatically.
+    const tryAutoCheck = async (attempt = 1) => {
+      try {
+        checkBtn.click();
+      } catch (_) {
+        await startupStatusAndAutoInject();
+      }
+      if (!statusCardsRendered() && attempt < 4) {
+        await delay(900);
+        return tryAutoCheck(attempt + 1);
+      }
+      // Keep existing auto pipeline as a fallback/second pass.
+      if (!statusCardsRendered()) {
+        await startupStatusAndAutoInject();
+      }
+    };
+    tryAutoCheck();
+    startStartupWakeLoop();
+  });
 });
