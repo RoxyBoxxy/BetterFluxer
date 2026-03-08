@@ -15,6 +15,8 @@ module.exports = class DisplaySourceFixPlugin {
       sources: [],
       at: 0
     };
+    this.includeScreens = true;
+    this.includeWindows = true;
   }
 
   getElectronApi() {
@@ -27,6 +29,7 @@ module.exports = class DisplaySourceFixPlugin {
       return [];
     }
     try {
+      this.cache.types = this.getSourceTypes();
       const sources = await electronApi.getDesktopSources(this.cache.types);
       if (Array.isArray(sources)) {
         this.cache.sources = sources;
@@ -256,6 +259,7 @@ module.exports = class DisplaySourceFixPlugin {
 
   start() {
     const win = this.api.app.getWindow?.();
+    this.loadConfig();
     const electronApi = this.getElectronApi();
     const mediaDevices = win?.navigator?.mediaDevices;
     const hasSelectDisplayMediaSource = Boolean(electronApi && typeof electronApi.selectDisplayMediaSource === "function");
@@ -357,5 +361,47 @@ module.exports = class DisplaySourceFixPlugin {
     this.originalGetDisplayMedia = null;
     this.originalGetUserMedia = null;
     this.api.logger.info("Display source fallback patch disabled.");
+  }
+
+  getSourceTypes() {
+    const out = [];
+    if (this.includeScreens) out.push("screen");
+    if (this.includeWindows) out.push("window");
+    return out.length ? out : ["screen", "window"];
+  }
+
+  loadConfig() {
+    try {
+      this.includeScreens = this.api.storage.get("includeScreens", this.includeScreens) !== false;
+      this.includeWindows = this.api.storage.get("includeWindows", this.includeWindows) !== false;
+      this.cache.types = this.getSourceTypes();
+    } catch (_e) {}
+  }
+
+  getSettingsSchema() {
+    return {
+      title: "Display Source Fix",
+      description: "Desktop source picker and fallback source types.",
+      controls: [
+        { key: "includeScreens", type: "boolean", label: "Include screens", value: this.includeScreens },
+        { key: "includeWindows", type: "boolean", label: "Include windows", value: this.includeWindows }
+      ]
+    };
+  }
+
+  setSettingValue(key, value) {
+    const k = String(key || "");
+    if (k === "includeScreens") this.includeScreens = Boolean(value);
+    if (k === "includeWindows") this.includeWindows = Boolean(value);
+    this.cache.types = this.getSourceTypes();
+    try {
+      this.api.storage.set("includeScreens", this.includeScreens);
+      this.api.storage.set("includeWindows", this.includeWindows);
+    } catch (_e) {}
+    this.refreshSources();
+    return {
+      includeScreens: this.includeScreens,
+      includeWindows: this.includeWindows
+    };
   }
 };

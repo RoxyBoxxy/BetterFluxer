@@ -1897,6 +1897,10 @@ try {
         ".bf-manual h4{margin:0;font-size:var(--text-lg-semibold-size,16px);color:var(--header-primary,#fff);font-weight:700;}",
         ".bf-section{margin-top:18px;border-top:1px solid var(--background-modifier-accent,rgba(255,255,255,.08));padding-top:16px;display:grid;gap:10px;}",
         ".bf-section h4{margin:0;font-size:var(--text-lg-semibold-size,16px);color:var(--header-primary,#fff);font-weight:700;}",
+        ".bf-plugins-settings{display:grid;gap:10px;}",
+        ".bf-plugin-settings-card{padding:10px;border:1px solid var(--background-modifier-accent,rgba(255,255,255,.08));border-radius:8px;background:var(--background-secondary-alt,rgba(0,0,0,.12));display:grid;gap:8px;}",
+        ".bf-plugin-settings-title{font-size:14px;font-weight:700;color:var(--header-primary,#fff);}",
+        ".bf-plugin-settings-desc{font-size:12px;color:var(--text-muted,#9cacbe);}",
         ".bf-field{display:grid;gap:4px;}",
         ".bf-field label{font-size:var(--text-xs-normal-size,12px);color:var(--text-muted,#9cacbe);}",
         ".bf-input,.bf-textarea{width:100%;box-sizing:border-box;background:var(--input-background,#11151b);color:var(--text-normal,#e9eef5);border:1px solid var(--input-border,#313b47);border-radius:8px;padding:9px 11px;font:12px/1.4 ui-monospace,monospace;transition:border-color .12s ease,box-shadow .12s ease;}",
@@ -2036,6 +2040,7 @@ try {
         host.style.width = "100%";
         host.style.height = "100%";
         host.style.minHeight = "100%";
+        host.style.pointerEvents = "auto";
         host.style.display = "none";
         runtime.ui.contentHost.appendChild(host);
       }
@@ -2129,32 +2134,14 @@ try {
           "        Auto-inject BetterFluxer category in settings menu",
           "      </label>",
           "      <div class=\\"bf-section\\">",
-          "        <h4>DiscordRPCEmu Bridge</h4>",
-          "        <label class=\\"bf-toggle\\">",
-          "          <input type=\\"checkbox\\" data-bf-bridge-enabled />",
-          "          Enable local bridge source for now-playing",
-          "        </label>",
-          "        <div class=\\"bf-field\\">",
-          "          <label>Bridge Port</label>",
-          "          <input class=\\"bf-input\\" type=\\"number\\" min=\\"1\\" step=\\"1\\" data-bf-bridge-port placeholder=\\"21864\\" />",
-          "        </div>",
-          "        <div class=\\"bf-field\\">",
-          "          <label>Bridge Token</label>",
-          "          <input class=\\"bf-input\\" type=\\"text\\" data-bf-bridge-token placeholder=\\"Token from data/bridge-token.txt\\" />",
-          "        </div>",
-          "        <div class=\\"bf-toolbar\\">",
-          "          <button class=\\"bf-btn\\" data-bf-bridge-save>Save Bridge</button>",
-          "          <button class=\\"bf-btn\\" data-bf-bridge-test>Test Sync Now</button>",
-          "        </div>",
-          "        <div class=\\"bf-meta\\" data-bf-bridge-status></div>",
+          "        <h4>Plugin Settings</h4>",
+          "        <div class=\\"bf-plugins-settings\\" data-bf-plugin-settings></div>",
+          "        <div class=\\"bf-meta\\" data-bf-plugin-settings-status></div>",
           "      </div>",
           "    </div>",
           "  </div>",
           "</div>"
         ].join("");
-        root.addEventListener("pointerdown", (event) => event.stopPropagation());
-        root.addEventListener("mousedown", (event) => event.stopPropagation());
-        root.addEventListener("click", (event) => event.stopPropagation());
         runtime.ui.panel = root;
       }
 
@@ -2353,82 +2340,176 @@ try {
         injectSettingsCategory();
       };
 
-      const bridgeEnabledInput = runtime.ui.panel.querySelector("[data-bf-bridge-enabled]");
-      const bridgePortInput = runtime.ui.panel.querySelector("[data-bf-bridge-port]");
-      const bridgeTokenInput = runtime.ui.panel.querySelector("[data-bf-bridge-token]");
-      const bridgeSaveBtn = runtime.ui.panel.querySelector("[data-bf-bridge-save]");
-      const bridgeTestBtn = runtime.ui.panel.querySelector("[data-bf-bridge-test]");
-      const bridgeStatus = runtime.ui.panel.querySelector("[data-bf-bridge-status]");
-      const callBridge = (methodName, ...args) => {
-        if (!window.BetterFluxer || typeof window.BetterFluxer.callPluginMethod !== "function") return null;
-        return window.BetterFluxer.callPluginMethod("DiscordRPCEmu", methodName, ...args);
-      };
-      const applyBridgeStateToInputs = (state) => {
-        if (!state || typeof state !== "object") return;
-        if (bridgeEnabledInput && Object.prototype.hasOwnProperty.call(state, "localBridgeEnabled")) {
-          bridgeEnabledInput.checked = Boolean(state.localBridgeEnabled);
-        }
-        if (bridgePortInput && Object.prototype.hasOwnProperty.call(state, "localBridgePort")) {
-          const p = Number(state.localBridgePort || 21864);
-          bridgePortInput.value = Number.isFinite(p) ? String(p) : "21864";
-        }
-      };
-      try {
-        const state = callBridge("getStatusSyncState");
-        applyBridgeStateToInputs(state);
-      } catch (_e) {}
-
-      if (bridgeSaveBtn) {
-        bridgeSaveBtn.onclick = () => {
-          bridgeSaveBtn.disabled = true;
-          const payload = {
-            enabled: bridgeEnabledInput ? Boolean(bridgeEnabledInput.checked) : true,
-            port: bridgePortInput ? Number.parseInt(String(bridgePortInput.value || "21864"), 10) : 21864
-          };
-          if (bridgeTokenInput) {
-            const tokenText = String(bridgeTokenInput.value || "").trim();
-            if (tokenText) payload.token = tokenText;
-          }
+      const pluginSettingsRoot = runtime.ui.panel.querySelector("[data-bf-plugin-settings]");
+      const pluginSettingsStatus = runtime.ui.panel.querySelector("[data-bf-plugin-settings-status]");
+      if (pluginSettingsRoot) {
+        pluginSettingsRoot.innerHTML = "";
+        const callPlugin = (pluginId, methodName, ...args) => {
+          const id = String(pluginId || "");
+          const method = String(methodName || "");
+          if (!id || !method) return null;
+          const plugin = runtime.plugins.find((p) => p && p.id === id);
+          if (!plugin || !plugin.instance) return null;
+          const fn = plugin.instance[method];
+          if (typeof fn !== "function") return null;
           try {
-            const result = callBridge("configureLocalBridge", payload);
-            if (bridgeStatus) {
-              bridgeStatus.textContent =
-                "Saved. enabled=" +
-                String(result && result.enabled) +
-                " port=" +
-                String((result && result.port) || payload.port) +
-                " tokenSet=" +
-                String(Boolean(result && result.tokenSet));
-            }
-          } catch (error) {
-            if (bridgeStatus) {
-              bridgeStatus.textContent = "Bridge save failed: " + String((error && error.message) || error || "unknown");
-            }
-          } finally {
-            bridgeSaveBtn.disabled = false;
+            return fn.apply(plugin.instance, args);
+          } catch (_e) {
+            return null;
           }
         };
-      }
-
-      if (bridgeTestBtn) {
-        bridgeTestBtn.onclick = async () => {
-          bridgeTestBtn.disabled = true;
-          if (bridgeStatus) bridgeStatus.textContent = "Running now-playing sync...";
+        const applyPluginSetting = (pluginId, key, value) => {
+          const id = String(pluginId || "");
+          const settingKey = String(key || "");
+          if (!id || !settingKey) return null;
+          const result = callPlugin(id, "setSettingValue", settingKey, value);
+          // Optional compatibility hooks for plugins that need explicit re-apply.
+          callPlugin(id, "onSettingChanged", settingKey, value, result);
+          callPlugin(id, "refresh");
+          callPlugin(id, "processDocument", document);
           try {
-            const ok = await Promise.resolve(callBridge("syncNowPlayingNow"));
-            const state = callBridge("getStatusSyncState");
-            if (bridgeStatus) {
-              bridgeStatus.textContent =
-                "Sync result: " + String(Boolean(ok)) + (state && state.lastAppliedStatusText ? " | " + state.lastAppliedStatusText : "");
+            if (runtime.events && typeof runtime.events.emit === "function") {
+              runtime.events.emit("plugin:setting:changed", {
+                pluginId: id,
+                key: settingKey,
+                value: value,
+                result: result
+              });
             }
-          } catch (error) {
-            if (bridgeStatus) {
-              bridgeStatus.textContent = "Sync failed: " + String((error && error.message) || error || "unknown");
-            }
-          } finally {
-            bridgeTestBtn.disabled = false;
-          }
+          } catch (_e) {}
+          try {
+            window.dispatchEvent(
+              new CustomEvent("betterfluxer:plugin-setting-changed", {
+                detail: { pluginId: id, key: settingKey, value: value, result: result }
+              })
+            );
+          } catch (_e) {}
+          return result;
         };
+
+        let renderedAny = false;
+        for (const plugin of runtime.plugins) {
+          if (!plugin || !plugin.instance || !plugin.enabled) continue;
+          const schema = callPlugin(plugin.id, "getSettingsSchema");
+          if (!schema || !Array.isArray(schema.controls) || !schema.controls.length) continue;
+          renderedAny = true;
+
+          const card = document.createElement("div");
+          card.className = "bf-plugin-settings-card";
+
+          const title = document.createElement("div");
+          title.className = "bf-plugin-settings-title";
+          title.textContent = String(schema.title || plugin.id);
+          card.appendChild(title);
+
+          if (schema.description) {
+            const desc = document.createElement("div");
+            desc.className = "bf-plugin-settings-desc";
+            desc.textContent = String(schema.description);
+            card.appendChild(desc);
+          }
+
+          for (const control of schema.controls) {
+            if (!control || !control.key) continue;
+            const field = document.createElement("div");
+            field.className = "bf-field";
+            const label = document.createElement("label");
+            label.textContent = String(control.label || control.key);
+            field.appendChild(label);
+
+            if (control.type === "range") {
+              const valueNode = document.createElement("div");
+              valueNode.className = "bf-meta";
+              const input = document.createElement("input");
+              input.className = "bf-input";
+              input.type = "range";
+              input.min = String(Number.isFinite(Number(control.min)) ? Number(control.min) : 0);
+              input.max = String(Number.isFinite(Number(control.max)) ? Number(control.max) : 100);
+              input.step = String(Number.isFinite(Number(control.step)) ? Number(control.step) : 1);
+              input.value = String(control.value != null ? control.value : input.min);
+              const formatValue = () => {
+                const suffix = control.suffix != null ? String(control.suffix) : "";
+                const n = Number.parseFloat(String(input.value || "0"));
+                valueNode.textContent = Number.isFinite(n) ? n.toFixed(2) + suffix : String(input.value || "");
+              };
+              formatValue();
+              input.oninput = () => {
+                formatValue();
+                applyPluginSetting(plugin.id, String(control.key), Number.parseFloat(String(input.value || "0")));
+              };
+              field.appendChild(input);
+              field.appendChild(valueNode);
+            } else if (control.type === "boolean") {
+              const wrap = document.createElement("label");
+              wrap.className = "bf-toggle";
+              const input = document.createElement("input");
+              input.type = "checkbox";
+              input.checked = Boolean(control.value);
+              const text = document.createElement("span");
+              text.textContent = String(control.toggleLabel || "Enabled");
+              input.onchange = () => {
+                applyPluginSetting(plugin.id, String(control.key), Boolean(input.checked));
+              };
+              wrap.appendChild(input);
+              wrap.appendChild(text);
+              field.appendChild(wrap);
+            } else if (control.type === "button") {
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "bf-btn";
+              btn.textContent = String(control.buttonLabel || control.label || control.key || "Run");
+              const resultNode = document.createElement("div");
+              resultNode.className = "bf-meta";
+              if (control.note) resultNode.textContent = String(control.note);
+              btn.onclick = () => {
+                btn.disabled = true;
+                const maybeResult = applyPluginSetting(
+                  plugin.id,
+                  String(control.key),
+                  control.value === undefined ? true : control.value
+                );
+                Promise.resolve(maybeResult)
+                  .then((result) => {
+                    if (result == null || result === "") {
+                      if (!control.note) resultNode.textContent = "OK";
+                      return;
+                    }
+                    if (typeof result === "string") {
+                      resultNode.textContent = result;
+                      return;
+                    }
+                    try {
+                      resultNode.textContent = JSON.stringify(result);
+                    } catch (_e) {
+                      resultNode.textContent = String(result);
+                    }
+                  })
+                  .catch((err) => {
+                    resultNode.textContent = "Error: " + (err && err.message ? err.message : "failed");
+                  })
+                  .finally(() => {
+                    btn.disabled = false;
+                  });
+              };
+              field.appendChild(btn);
+              field.appendChild(resultNode);
+            } else {
+              const input = document.createElement("input");
+              input.className = "bf-input";
+              input.type = "text";
+              input.value = String(control.value == null ? "" : control.value);
+              input.onchange = () => {
+                applyPluginSetting(plugin.id, String(control.key), String(input.value || ""));
+              };
+              field.appendChild(input);
+            }
+            card.appendChild(field);
+          }
+          pluginSettingsRoot.appendChild(card);
+        }
+        if (pluginSettingsStatus) {
+          pluginSettingsStatus.textContent = renderedAny ? "" : "No plugin settings available.";
+        }
       }
 
       const pluginsCard = runtime.ui.panel.querySelector("[data-bf-card-plugins]");
@@ -2805,7 +2886,9 @@ try {
           pending = false;
           injectSettingsCategory();
           if (runtime.ui.activeTab === "plugins" || runtime.ui.activeTab === "settings") {
-            renderPanel(runtime.ui.activeTab);
+            // Keep panel attached/visible without force-rerendering on every app DOM mutation.
+            updateSettingsEntrySelection();
+            showBetterFluxerContent();
           }
           applyCustomSplashIcon(document);
           injectClientInfoVersionLine(document);

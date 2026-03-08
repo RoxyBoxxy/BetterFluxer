@@ -38,3 +38,12 @@ export default {
 ```
 
 `ctx` receives the BetterFluxer API (`logger`, `storage`, `patcher`, `settings`, `ui`, `classes`, `app`).
+
+## Dynamic Settings (Recommended)
+
+Plugins can expose settings in BetterFluxer settings UI by implementing:
+
+- `getSettingsSchema()`
+- `setSettingValue(key, value)`
+
+See full guide: [Plugin Settings Integration](./plugin-settings.md)

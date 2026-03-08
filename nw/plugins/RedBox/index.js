@@ -14,11 +14,13 @@ module.exports = class RedBoxPlugin {
     this.hideTimer = null;
     this.inspectActive = false;
     this.keybind = "Ctrl+Shift+X";
+    this.autoHideMs = 5000;
   }
 
   start() {
     const doc = this.api.app.getDocument?.();
     if (!doc) return;
+    this.loadConfig();
     if (doc.getElementById(this.styleId)) return;
 
     const style = doc.createElement("style");
@@ -156,7 +158,7 @@ module.exports = class RedBoxPlugin {
     this.clearHideTimer();
     this.hideTimer = setTimeout(() => {
       this.hideInspector();
-    }, 5000);
+    }, this.autoHideMs);
   }
 
   handleCopyButtonClick(event) {
@@ -218,8 +220,7 @@ module.exports = class RedBoxPlugin {
 
   handleKeyDown(event) {
     if (!event || event.repeat) return;
-    const key = String(event.key || "").toLowerCase();
-    if (!(event.ctrlKey && event.shiftKey && key === "x")) return;
+    if (!this.matchesKeybind(event, this.keybind)) return;
     event.preventDefault();
     event.stopPropagation();
     if (typeof event.stopImmediatePropagation === "function") {
@@ -326,5 +327,65 @@ module.exports = class RedBoxPlugin {
       doc.execCommand("copy");
       ta.remove();
     } catch (_) {}
+  }
+
+  loadConfig() {
+    try {
+      const bind = String(this.api.storage.get("keybind", this.keybind) || this.keybind).trim();
+      const hide = Number(this.api.storage.get("autoHideMs", this.autoHideMs));
+      if (bind) this.keybind = bind;
+      if (Number.isFinite(hide) && hide >= 500) this.autoHideMs = Math.round(hide);
+    } catch (_e) {}
+  }
+
+  getSettingsSchema() {
+    return {
+      title: "RedBox",
+      description: "Inspector overlay settings.",
+      controls: [
+        { key: "keybind", type: "text", label: "Toggle keybind (e.g. Ctrl+Shift+X)", value: this.keybind },
+        { key: "autoHideMs", type: "range", label: "Auto-hide delay (ms)", min: 500, max: 20000, step: 100, value: this.autoHideMs }
+      ]
+    };
+  }
+
+  setSettingValue(key, value) {
+    const k = String(key || "");
+    if (k === "keybind") {
+      const bind = String(value || "").trim();
+      if (bind) this.keybind = bind;
+    }
+    if (k === "autoHideMs") {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 500) this.autoHideMs = Math.round(n);
+    }
+    try {
+      this.api.storage.set("keybind", this.keybind);
+      this.api.storage.set("autoHideMs", this.autoHideMs);
+    } catch (_e) {}
+    return { keybind: this.keybind, autoHideMs: this.autoHideMs };
+  }
+
+  matchesKeybind(event, keybind) {
+    const parts = String(keybind || "")
+      .toLowerCase()
+      .split("+")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (!parts.length) return false;
+    const needsCtrl = parts.includes("ctrl") || parts.includes("control");
+    const needsShift = parts.includes("shift");
+    const needsAlt = parts.includes("alt");
+    const needsMeta = parts.includes("meta") || parts.includes("cmd") || parts.includes("command");
+    const main = parts.find((p) => !["ctrl", "control", "shift", "alt", "meta", "cmd", "command"].includes(p));
+    if (!main) return false;
+    const key = String(event.key || "").toLowerCase();
+    return (
+      event.ctrlKey === needsCtrl &&
+      event.shiftKey === needsShift &&
+      event.altKey === needsAlt &&
+      event.metaKey === needsMeta &&
+      key === main
+    );
   }
 };

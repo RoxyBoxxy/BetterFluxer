@@ -2,6 +2,7 @@
 
 - [Runtime API](./runtime-api.md)
 - [Plugin Layouts](./plugin-layouts.md)
+- [Plugin Settings Integration](./plugin-settings.md)
 - [Plugin Store](./plugin-store.md)
 - [Core Classes](./core-classes.md)
 - [UI Classes](./ui-classes.md)

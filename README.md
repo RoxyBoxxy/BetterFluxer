@@ -8,6 +8,7 @@ Main features:
 - Safe patching API (`before`, `after`, `instead`, `unpatchAll`)
 - Per-plugin persistent storage
 - Injected settings UI inside Fluxer settings panel
+- Dynamic plugin settings integration (`getSettingsSchema` + `setSettingValue`) with live apply
 - Plugin store support (remote index + install/remove)
 
 Docs index: [`docs/README.md`](./docs/README.md)
@@ -92,4 +93,4 @@ If Fluxer only has packed `app.asar` without `app.asar.unpacked` preload, inject
 - `bridge-nw/`: Bridge app and local bridge script
 - `scripts/lib/fluxer-injector-utils.js`: Core patch/inject logic
 - `src/`: Runtime core used by injected BetterFluxer
-- `plugins/` and/or `nw/plugins/`: Default plugins loaded by injector
+- `MyPlugins/`, `plugins/`, and/or `nw/plugins/`: Plugin sources loaded by injector/runtime
