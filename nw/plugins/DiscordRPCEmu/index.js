@@ -228,6 +228,78 @@ module.exports = class DiscordRPCEmuPlugin {
     this.api.logger.info("DiscordRPCEmu disabled.");
   }
 
+  getSettingsSchema() {
+    return {
+      title: "Discord RPC Emu",
+      description: "Bridge and status sync behavior.",
+      controls: [
+        { key: "statusSyncEnabled", type: "boolean", label: "Enable status sync", value: this.statusSyncEnabled },
+        { key: "localBridgeEnabled", type: "boolean", label: "Enable local bridge", value: this.localBridgeEnabled },
+        { key: "debugDetection", type: "boolean", label: "Enable debug detection logs", value: this.debugDetection },
+        { key: "localBridgePort", type: "text", label: "Local bridge port (1024-65535)", value: String(this.localBridgePort) },
+        { key: "localBridgeToken", type: "text", label: "Local bridge token", value: this.localBridgeToken || "" },
+        { key: "testBridgeReconnect", type: "button", label: "Restart local bridge", note: "Reconnects bridge using current settings." },
+        { key: "testSyncNow", type: "button", label: "Sync now-playing now", note: "Runs an immediate status sync." },
+        { key: "testStatusState", type: "button", label: "Get status sync state", note: "Returns current status sync diagnostics." }
+      ]
+    };
+  }
+
+  setSettingValue(key, value) {
+    const k = String(key || "");
+    if (k === "testBridgeReconnect") {
+      this.stopBridge();
+      if (this.localBridgeEnabled) this.startBridge();
+      return this.getBridgeState();
+    }
+    if (k === "testSyncNow") {
+      return this.syncNowPlayingNow()
+        .then(() => this.getStatusSyncState())
+        .catch((err) => ({ ok: false, error: err && err.message ? err.message : "sync failed" }));
+    }
+    if (k === "testStatusState") {
+      return this.getStatusSyncState();
+    }
+    if (k === "statusSyncEnabled") {
+      this.statusSyncEnabled = Boolean(value);
+      if (this.statusSyncEnabled) this.startStatusSync();
+      else this.stopStatusSync();
+    }
+    if (k === "localBridgeEnabled") {
+      this.localBridgeEnabled = Boolean(value);
+      this.stopBridge();
+      if (this.localBridgeEnabled) this.startBridge();
+    }
+    if (k === "debugDetection") {
+      this.debugDetection = Boolean(value);
+    }
+    if (k === "localBridgePort") {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 1024 && n <= 65535) {
+        this.localBridgePort = Math.round(n);
+        this.stopBridge();
+        if (this.localBridgeEnabled) this.startBridge();
+      }
+    }
+    if (k === "localBridgeToken") {
+      this.localBridgeToken = String(value || "");
+    }
+    try {
+      this.api.storage.set("statusSyncEnabled", this.statusSyncEnabled);
+      this.api.storage.set("localBridgeEnabled", this.localBridgeEnabled);
+      this.api.storage.set("debugDetection", this.debugDetection);
+      this.api.storage.set("localBridgePort", this.localBridgePort);
+      this.api.storage.set("localBridgeToken", this.localBridgeToken);
+    } catch (_e) {}
+    return {
+      statusSyncEnabled: this.statusSyncEnabled,
+      localBridgeEnabled: this.localBridgeEnabled,
+      debugDetection: this.debugDetection,
+      localBridgePort: this.localBridgePort,
+      localBridgeToken: this.localBridgeToken
+    };
+  }
+
   debugLog(message, extra) {
     if (!this.debugDetection) return;
     if (typeof extra !== "undefined") {

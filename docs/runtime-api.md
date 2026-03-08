@@ -28,6 +28,24 @@ Class constructors for building custom modules.
 ### `openSettings(tabName?: "plugins" | "settings"): void`
 Opens BetterFluxer settings content inside Fluxer's settings right pane.
 
+### Plugin-defined settings UI
+Enabled plugins that implement:
+- `getSettingsSchema()`
+- `setSettingValue(key, value)`
+
+are auto-rendered in BetterFluxer settings.
+
+On change, BetterFluxer calls:
+1. `setSettingValue(key, value)`
+2. optional hooks if present:
+   - `onSettingChanged(key, value, result)`
+   - `refresh()`
+   - `processDocument(document)`
+
+and emits:
+- runtime event: `plugin:setting:changed`
+- window event: `betterfluxer:plugin-setting-changed`
+
 ### `loadStoreIndex(): Promise<Array<{ id: string, name: string, url: string }>>`
 Fetches remote plugin index from store URL.
 

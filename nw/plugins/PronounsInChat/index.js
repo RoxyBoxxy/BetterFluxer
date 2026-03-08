@@ -77,6 +77,7 @@ module.exports = class PronounsInChatPlugin {
   start() {
     const doc = this.api.app.getDocument?.();
     if (!doc) return;
+    this.loadConfig();
     this.loadPersistentCaches();
     this.injectStyle(doc);
     this.exposeGlobalAccessor();
@@ -629,5 +630,78 @@ module.exports = class PronounsInChatPlugin {
       clearTimeout(pendingRetry);
       this.retryTimers.delete(span);
     }
+  }
+
+  loadConfig() {
+    try {
+      const retry = Number(this.api.storage.get("retryDelayMs", this.retryDelayMs));
+      const maxPronouns = Number(this.api.storage.get("maxCacheEntries", this.maxCacheEntries));
+      const maxProfiles = Number(this.api.storage.get("maxProfileEntries", this.maxProfileEntries));
+      if (Number.isFinite(retry) && retry >= 1000) this.retryDelayMs = Math.round(retry);
+      if (Number.isFinite(maxPronouns) && maxPronouns >= 100) this.maxCacheEntries = Math.round(maxPronouns);
+      if (Number.isFinite(maxProfiles) && maxProfiles >= 100) this.maxProfileEntries = Math.round(maxProfiles);
+    } catch (_e) {}
+  }
+
+  getSettingsSchema() {
+    return {
+      title: "Pronouns In Chat",
+      description: "Caching and retry settings for pronoun badges.",
+      controls: [
+        {
+          key: "retryDelayMs",
+          type: "range",
+          label: "Retry delay (ms)",
+          min: 1000,
+          max: 120000,
+          step: 1000,
+          value: this.retryDelayMs
+        },
+        {
+          key: "maxCacheEntries",
+          type: "range",
+          label: "Pronoun cache size",
+          min: 100,
+          max: 10000,
+          step: 100,
+          value: this.maxCacheEntries
+        },
+        {
+          key: "maxProfileEntries",
+          type: "range",
+          label: "Profile cache size",
+          min: 100,
+          max: 5000,
+          step: 100,
+          value: this.maxProfileEntries
+        }
+      ]
+    };
+  }
+
+  setSettingValue(key, value) {
+    const k = String(key || "");
+    if (k === "retryDelayMs") {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 1000) this.retryDelayMs = Math.round(n);
+    }
+    if (k === "maxCacheEntries") {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 100) this.maxCacheEntries = Math.round(n);
+    }
+    if (k === "maxProfileEntries") {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 100) this.maxProfileEntries = Math.round(n);
+    }
+    try {
+      this.api.storage.set("retryDelayMs", this.retryDelayMs);
+      this.api.storage.set("maxCacheEntries", this.maxCacheEntries);
+      this.api.storage.set("maxProfileEntries", this.maxProfileEntries);
+    } catch (_e) {}
+    return {
+      retryDelayMs: this.retryDelayMs,
+      maxCacheEntries: this.maxCacheEntries,
+      maxProfileEntries: this.maxProfileEntries
+    };
   }
 };
