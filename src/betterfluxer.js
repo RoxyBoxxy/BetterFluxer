@@ -2,6 +2,7 @@ const path = require("path");
 const { Patcher } = require("./core/patcher");
 const { PluginManager } = require("./core/plugin-manager");
 const { createLogger } = require("./core/logger");
+const { createUIApi } = require("./core/ui-classes");
 
 class BetterFluxer {
   constructor(options = {}) {
@@ -10,11 +11,16 @@ class BetterFluxer {
     this.dataPath = options.dataPath || path.join(this.rootPath, "data");
     this.logger = createLogger("Core");
     this.patcher = new Patcher();
+    const uiApi = createUIApi(options.appContext || {});
+    this.ui = uiApi.ui;
+    this.classes = uiApi.classes;
     this.pluginManager = new PluginManager({
       pluginsPath: this.pluginsPath,
       dataPath: this.dataPath,
       patcher: this.patcher,
-      appContext: options.appContext || {}
+      appContext: options.appContext || {},
+      ui: this.ui,
+      classes: this.classes
     });
   }
 
@@ -34,6 +40,15 @@ class BetterFluxer {
 
   reloadPlugin(pluginId) {
     return this.pluginManager.reload(pluginId);
+  }
+
+  getPublicApi() {
+    return {
+      listPlugins: () => this.listPlugins(),
+      reloadPlugin: (pluginId) => this.reloadPlugin(pluginId),
+      ui: this.ui,
+      classes: this.classes
+    };
   }
 }
 

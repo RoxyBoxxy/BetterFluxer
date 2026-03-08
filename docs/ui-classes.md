@@ -24,13 +24,18 @@ window.betterFluxerDebug.ui
 ### `settingsSidebar`
 - `getContainer()`
 - `getItems()`
+- `resolveTabId(idOrLabel)`
 - `clickById(tabId)`
+- `clickByLabel(label)`
+- `openTab(idOrLabel)`
+- `getApplicationItems()`
 
 ### `userProfile`
 - `getSidebarName()`
 - `openProfileSettings()`
 - `getCurrentUser()`
 - `getCurrentUserData()`
+- `getCurrentUserId()`
 - `captureCurrentUser()`
 - `fromDebugJson(jsonOrObject)`
 - `onUpdate(callback)`
@@ -39,15 +44,40 @@ window.betterFluxerDebug.ui
 ### `messages`
 - `getComposer()`
 - `getVisibleMessages()`
+- `getVisibleMessageIds()`
+- `getLastVisibleMessage()`
 - `sendMessage(text)`
 
 ### `guildList`
 - `getGuildItems()`
 - `clickGuildByName(name)`
+- `clickGuildById(guildId)`
 
 ### `channels`
 - `getChannelItems()`
 - `clickChannelByName(name)`
+- `getCurrentRoute()`
+- `getCurrentGuildId()`
+- `getCurrentChannelId()`
+- `clickChannelById(channelId, guildId?)`
+
+### `members` / `userList`
+- `getMemberItems()`
+- `clickMemberByName(name)`
+- `getVisibleMemberIds()`
+- `getMemberById(userId)`
+- `clickMemberById(userId)`
+
+### `navigation`
+- `getCurrentPath()`
+- `navigateTo(pathName)`
+- `parseRoute(pathName?)`
+- `navigateToChannel(guildId, channelId)`
+- `navigateToDm(channelId)`
+
+### `modals`
+- `getOpenModals()`
+- `closeTopModal()`
 
 ## Class constructors (`api.classes`)
 
@@ -57,6 +87,9 @@ window.betterFluxerDebug.ui
 - `MessagesClass`
 - `GuildListClass`
 - `ChannelsClass`
+- `MembersClass`
+- `NavigationClass`
+- `ModalsClass`
 
 Use these if you want to build your own higher-level modules.
 

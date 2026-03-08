@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+const fs = require("fs");
+const crypto = require("crypto");
 const path = require("path");
 const {
   DEFAULT_INSTALL_ROOT,
@@ -12,13 +14,48 @@ const {
   collectInlinePlugins,
   patchPreload,
   patchMainIpcHandlers,
-  buildStoreIndexSnapshot
+  buildStoreIndexSnapshot,
+  getDefaultSplashIconDataUrl,
+  DEFAULT_SPLASH_PULSE_COLOR
 } = require("./lib/fluxer-injector-utils");
+
+function getBetterFluxerVersion(sourceRoot) {
+  try {
+    const res = require("child_process").spawnSync("git", ["describe", "--tags", "--abbrev=0"], {
+      cwd: sourceRoot,
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: false,
+      encoding: "utf8"
+    });
+    if (!res.error && res.status === 0) {
+      const tag = String(res.stdout || "").trim();
+      if (tag) return tag;
+    }
+  } catch (_) {}
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(sourceRoot, "package.json"), "utf8"));
+    if (pkg && typeof pkg.version === "string" && pkg.version.trim()) {
+      return pkg.version.trim();
+    }
+  } catch (_) {}
+  return "dev";
+}
+
+function computeInjectorChecksum(version, inlinePlugins) {
+  try {
+    const payload = JSON.stringify(inlinePlugins || []);
+    return crypto.createHash("sha256").update(String(version || "dev")).update("\n").update(payload).digest("hex").slice(0, 12);
+  } catch (_) {
+    return "";
+  }
+}
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const dryRun = Boolean(args["dry-run"]);
   const sourceRoot = path.resolve(args["source-root"] || path.join(__dirname, ".."));
+  const defaultSplashIconDataUrl = getDefaultSplashIconDataUrl(sourceRoot);
+  const defaultSplashPulseColor = DEFAULT_SPLASH_PULSE_COLOR;
 
   const appPath = getFluxerAppPath({
     appPath: args["app-path"],
@@ -48,6 +85,8 @@ async function main() {
   const launcherPath = ensureLinuxSafeLauncher(appPath);
   writeBootstrap(paths.bootstrapPath);
   const inlinePlugins = collectInlinePlugins(sourceRoot);
+  const betterFluxerVersion = getBetterFluxerVersion(sourceRoot);
+  const betterFluxerChecksum = computeInjectorChecksum(betterFluxerVersion, inlinePlugins);
   const storeIndexUrl =
     String(args["store-index-url"] || "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/refs/heads/main/plugins.json");
   const storeIndexSnapshot = await buildStoreIndexSnapshot(storeIndexUrl);
@@ -56,7 +95,11 @@ async function main() {
   const mainPatchResult = patchMainIpcHandlers(paths.mainIpcHandlersPath, paths.backupMainIpcHandlersPath);
   const patchResult = patchPreload(paths.preloadPath, paths.backupPreloadPath, inlinePlugins, {
     enableIpcBridge: mainPatchResult && mainPatchResult.skipped !== true,
-    storeIndexSnapshot
+    storeIndexSnapshot,
+    betterFluxerVersion,
+    betterFluxerChecksum,
+    customSplashIconDataUrl: String(args["custom-splash-icon-data-url"] || defaultSplashIconDataUrl),
+    customSplashPulseColor: String(args["custom-splash-pulse-color"] || defaultSplashPulseColor)
   });
 
   // eslint-disable-next-line no-console

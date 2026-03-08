@@ -17,6 +17,8 @@ class PluginManager {
     this.dataPath = options.dataPath;
     this.patcher = options.patcher;
     this.appContext = options.appContext || {};
+    this.ui = options.ui || {};
+    this.classes = options.classes || {};
     this.logger = createLogger("PluginManager");
     this.plugins = new Map();
   }
@@ -136,7 +138,9 @@ class PluginManager {
         after: (target, method, callback) => this.patcher.after(pluginId, target, method, callback),
         instead: (target, method, callback) => this.patcher.instead(pluginId, target, method, callback),
         unpatchAll: () => this.patcher.unpatchAll(pluginId)
-      }
+      },
+      ui: this.ui,
+      classes: this.classes
     };
   }
 

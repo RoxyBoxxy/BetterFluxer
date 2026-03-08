@@ -34,6 +34,7 @@ function getDefaultInstallRoots(platform = process.platform) {
 
 const DEFAULT_INSTALL_ROOTS = getDefaultInstallRoots();
 const DEFAULT_INSTALL_ROOT = DEFAULT_INSTALL_ROOTS[0];
+const DEFAULT_SPLASH_PULSE_COLOR = "#ff77b8";
 const INJECTION_START = "// BetterFluxer Injector Start";
 const INJECTION_END = "// BetterFluxer Injector End";
 const MAIN_IPC_INJECTION_START = "// BetterFluxer Main IPC Start";
@@ -165,7 +166,9 @@ function ensureFileExists(filePath, label) {
 
 function copyRuntime(sourceRoot, injectedRoot) {
   fs.mkdirSync(injectedRoot, { recursive: true });
-  const pluginsSource = path.join(sourceRoot, "plugins");
+  const rootPluginsSource = path.join(sourceRoot, "plugins");
+  const nwPluginsSource = path.join(sourceRoot, "nw", "plugins");
+  const pluginsSource = fs.existsSync(rootPluginsSource) ? rootPluginsSource : nwPluginsSource;
   if (fs.existsSync(pluginsSource)) {
     try {
       fs.cpSync(pluginsSource, path.join(injectedRoot, "plugins"), { recursive: true, force: true });
@@ -217,12 +220,31 @@ function ensureLinuxSafeLauncher(appPath) {
   return launcherPath;
 }
 
+function getDefaultSplashIconDataUrl(sourceRoot) {
+  try {
+    const root = sourceRoot ? path.resolve(sourceRoot) : path.resolve(__dirname, "..", "..");
+    const candidates = [
+      path.join(root, "nw", "assets", "betterfluxertrans.png"),
+      path.join(root, "assets", "betterfluxertrans.png")
+    ];
+    const pngPath = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!pngPath) return "";
+    const bytes = fs.readFileSync(pngPath);
+    if (!bytes || !bytes.length) return "";
+    return `data:image/png;base64,${bytes.toString("base64")}`;
+  } catch (_) {
+    return "";
+  }
+}
+
 function writeBootstrap() {
   // legacy no-op; runtime is now injected inline into preload for sandbox compatibility
 }
 
 function collectInlinePlugins(sourceRoot) {
-  const pluginsRoot = path.join(sourceRoot, "plugins");
+  const rootPlugins = path.join(sourceRoot, "plugins");
+  const nwPlugins = path.join(sourceRoot, "nw", "plugins");
+  const pluginsRoot = fs.existsSync(rootPlugins) ? rootPlugins : nwPlugins;
   if (!fs.existsSync(pluginsRoot)) {
     return [];
   }
@@ -416,6 +438,9 @@ function buildRequireSnippet(inlinePlugins, options = {}) {
   const storeIndexSnapshot = JSON.stringify(Array.isArray(options.storeIndexSnapshot) ? options.storeIndexSnapshot : []);
   const enableIpcBridge = options && options.enableIpcBridge === true;
   const customSplashIconDataUrl = JSON.stringify(String((options && options.customSplashIconDataUrl) || ""));
+  const customSplashPulseColor = JSON.stringify(String((options && options.customSplashPulseColor) || ""));
+  const betterFluxerVersion = JSON.stringify(String((options && options.betterFluxerVersion) || "dev"));
+  const betterFluxerChecksum = JSON.stringify(String((options && options.betterFluxerChecksum) || ""));
   return `${INJECTION_START}
 try {
   (function initBetterFluxerInline() {
@@ -424,6 +449,9 @@ try {
     const STORE_INDEX_URL = "https://raw.githubusercontent.com/RoxyBoxxy/BetterFluxer/refs/heads/main/plugins.json";
     const STORE_INDEX_SNAPSHOT = ${storeIndexSnapshot};
     const CUSTOM_SPLASH_ICON_DATA_URL = ${customSplashIconDataUrl};
+    const CUSTOM_SPLASH_PULSE_COLOR = ${customSplashPulseColor};
+    const BETTERFLUXER_VERSION = ${betterFluxerVersion};
+    const BETTERFLUXER_CHECKSUM = ${betterFluxerChecksum};
     let defs = ${payload};
     const runtime = {
       plugins: [],
@@ -440,9 +468,12 @@ try {
       ui: {
         panel: null,
         observer: null,
-        activeTab: "plugins",
+        activeTab: null,
         manualInstallMessage: "",
         toastHost: null,
+        contentHost: null,
+        nativeContentNode: null,
+        nativeContentPrevDisplay: "",
         customCategories: [],
         settingsNodes: {
           category: null,
@@ -549,6 +580,12 @@ try {
       }, 3200);
     }
 
+    function debugUiLog(label, payload) {
+      try {
+        console.log("[BetterFluxer:UI Debug] " + String(label || ""), payload || null);
+      } catch (_e) {}
+    }
+
     function normalizeIconDataUrl(input) {
       const raw = String(input || "").trim();
       if (!raw) return "";
@@ -560,40 +597,94 @@ try {
       return "";
     }
 
+    function normalizeCssColor(input) {
+      const raw = String(input || "").trim();
+      if (!raw) return "";
+      if (/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(raw)) return raw;
+      if (/^rgba?\\([^)]+\\)$/i.test(raw)) return raw;
+      if (/^hsla?\\([^)]+\\)$/i.test(raw)) return raw;
+      if (/^[a-z]+$/i.test(raw)) return raw;
+      return "";
+    }
+
     function applyCustomSplashIcon(root) {
       const dataUrl = normalizeIconDataUrl(CUSTOM_SPLASH_ICON_DATA_URL);
-      if (!dataUrl) return false;
+      const pulseColor = normalizeCssColor(CUSTOM_SPLASH_PULSE_COLOR);
+      if (!dataUrl && !pulseColor) return false;
       const scope = root && root.querySelectorAll ? root : document;
       const wrappers = scope.querySelectorAll("div[class*='SplashScreen'][class*='iconWrapper']");
       if (!wrappers.length) return false;
       let changed = false;
       for (const wrap of wrappers) {
         if (!wrap || !wrap.querySelectorAll) continue;
-        let img = wrap.querySelector("img[data-bf-custom-splash-icon='1']");
-        if (!img) {
-          img = document.createElement("img");
-          img.setAttribute("data-bf-custom-splash-icon", "1");
-          img.setAttribute("alt", "BetterFluxer custom icon");
-          img.style.width = "100%";
-          img.style.height = "100%";
-          img.style.objectFit = "contain";
-          img.style.pointerEvents = "none";
-          const pulse = wrap.querySelector("div[class*='iconPulse']");
-          if (pulse && pulse.nextSibling) {
-            wrap.insertBefore(img, pulse.nextSibling);
-          } else {
-            wrap.appendChild(img);
+        if (dataUrl) {
+          let img = wrap.querySelector("img[data-bf-custom-splash-icon='1']");
+          if (!img) {
+            img = document.createElement("img");
+            img.setAttribute("data-bf-custom-splash-icon", "1");
+            img.setAttribute("alt", "BetterFluxer custom icon");
+            img.style.width = "100%";
+            img.style.height = "100%";
+            img.style.objectFit = "contain";
+            img.style.pointerEvents = "none";
+            const pulse = wrap.querySelector("div[class*='iconPulse']");
+            if (pulse && pulse.nextSibling) {
+              wrap.insertBefore(img, pulse.nextSibling);
+            } else {
+              wrap.appendChild(img);
+            }
+            changed = true;
           }
+          if (img.getAttribute("src") !== dataUrl) {
+            img.setAttribute("src", dataUrl);
+            changed = true;
+          }
+          const svgs = wrap.querySelectorAll("svg");
+          for (const svg of svgs) {
+            svg.style.setProperty("display", "none", "important");
+            svg.style.setProperty("visibility", "hidden", "important");
+          }
+        }
+        if (pulseColor) {
+          const pulse = wrap.querySelector("div[class*='iconPulse']");
+          if (pulse) {
+            pulse.style.setProperty("background", pulseColor, "important");
+            pulse.style.setProperty("border-color", pulseColor, "important");
+            pulse.style.setProperty("box-shadow", "0 0 28px " + pulseColor, "important");
+            changed = true;
+          }
+        }
+      }
+      return changed;
+    }
+
+    function getBetterFluxerBuildLabel() {
+      const versionText = String(BETTERFLUXER_VERSION || "dev").trim() || "dev";
+      const checksumText = String(BETTERFLUXER_CHECKSUM || "").trim();
+      if (checksumText) {
+        return "BetterFluxer v" + versionText + " (chk:" + checksumText + ")";
+      }
+      return "BetterFluxer v" + versionText;
+    }
+
+    function injectClientInfoVersionLine(root) {
+      const scope = root && root.querySelectorAll ? root : document;
+      const targets = scope.querySelectorAll("button[class*='ClientInfo'][class*='button']");
+      if (!targets || !targets.length) return false;
+      const lineText = getBetterFluxerBuildLabel();
+      let changed = false;
+      for (const btn of targets) {
+        if (!btn || !btn.appendChild) continue;
+        let line = btn.querySelector("[data-bf-client-info-version='1']");
+        if (!line) {
+          line = document.createElement("span");
+          line.setAttribute("data-bf-client-info-version", "1");
+          btn.appendChild(line);
           changed = true;
         }
-        if (img.getAttribute("src") !== dataUrl) {
-          img.setAttribute("src", dataUrl);
+        if (line.textContent !== lineText) {
+          line.textContent = lineText;
           changed = true;
-        }
-        const svgs = wrap.querySelectorAll("svg");
-        for (const svg of svgs) {
-          svg.style.setProperty("display", "none", "important");
-          svg.style.setProperty("visibility", "hidden", "important");
         }
       }
       return changed;
@@ -1775,28 +1866,42 @@ try {
       const style = document.createElement("style");
       style.id = "betterfluxer-ui-styles";
       style.textContent = [
-        ".bf-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483645;display:flex;align-items:center;justify-content:center;}",
-        ".bf-panel{width:min(820px,94vw);max-height:86vh;overflow:auto;background:#15181d;color:#f4f6f8;border:1px solid #2b3139;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.45);font-family:Segoe UI,Tahoma,sans-serif;}",
-        ".bf-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #2b3139;}",
+        ".bf-settings-root{display:block;width:100%;height:100%;min-height:100%;overflow:hidden;}",
+        ".bf-panel{width:100%;max-width:820px;height:100%;min-height:100%;margin:0 auto;overflow-x:hidden;overflow-y:auto;background:transparent;color:var(--text-normal,#f4f6f8);border:0;border-radius:0;box-shadow:none;font-family:var(--font-primary,Segoe UI,Tahoma,sans-serif);}",
+        ".bf-head{display:none;}",
         ".bf-head h2{margin:0;font-size:18px;}",
-        ".bf-body{padding:14px 16px;display:grid;gap:14px;}",
-        ".bf-card{background:#1b2027;border:1px solid #2b3139;border-radius:10px;padding:12px;}",
-        ".bf-card h3{margin:0 0 10px 0;font-size:14px;color:#d7dee7;}",
-        ".bf-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #2b3139;}",
+        ".bf-body{padding:8px 24px 28px 24px;display:grid;gap:28px;min-height:100%;}",
+        ".bf-card{background:transparent;border:0;border-radius:0;padding:0;}",
+        ".bf-card h3{margin:0 0 14px 0;font-size:var(--header-secondary-size,20px);font-weight:700;line-height:1.2;color:var(--header-primary,#fff);letter-spacing:.01em;}",
+        ".bf-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 0;border-top:1px solid var(--background-modifier-accent,rgba(255,255,255,.08));}",
         ".bf-row:first-child{border-top:0;padding-top:0;}",
-        ".bf-meta{font-size:12px;color:#9cacbe;}",
-        ".bf-btn{border:1px solid #3c4754;background:#26313d;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;}",
+        ".bf-row-info{min-width:0;}",
+        ".bf-row-title{font-size:var(--text-md-normal-size,16px);font-weight:500;line-height:1.2;color:var(--text-normal,#e6edf4);word-break:break-word;}",
+        ".bf-row-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;}",
+        ".bf-meta{font-size:var(--text-sm-normal-size,12px);color:var(--text-muted,#9cacbe);line-height:1.35;}",
+        ".bf-btn{border:1px solid var(--button-outline-brand-border,#3c4754);background:var(--button-secondary-background,#2b3139);color:var(--interactive-normal,#fff);border-radius:8px;padding:6px 12px;min-height:32px;font-size:var(--text-sm-medium-size,13px);font-weight:600;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease;}",
+        ".bf-btn:hover{background:var(--button-secondary-background-hover,#353c45);border-color:var(--button-outline-brand-border-hover,#4d5968);}",
+        ".bf-btn:active{background:var(--button-secondary-background-active,#1f242b);}",
         ".bf-btn[disabled]{opacity:.6;cursor:not-allowed;}",
-        ".bf-toggle{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#d7dee7;}",
-        ".bf-toolbar{display:flex;gap:8px;margin-bottom:8px;}",
-        ".bf-manual{margin-top:12px;border-top:1px solid #2b3139;padding-top:12px;display:grid;gap:8px;}",
-        ".bf-manual h4{margin:0;font-size:13px;color:#d7dee7;}",
-        ".bf-section{margin-top:12px;border-top:1px solid #2b3139;padding-top:12px;display:grid;gap:8px;}",
-        ".bf-section h4{margin:0;font-size:13px;color:#d7dee7;}",
+        ".bf-toggle{display:inline-flex;align-items:center;gap:10px;font-size:var(--text-md-normal-size,16px);color:var(--text-normal,#d7dee7);}",
+        ".bf-toggle input[type='checkbox']{width:16px;height:16px;accent-color:var(--brand-500,#5865f2);}",
+        ".bf-switch{position:relative;display:inline-flex;width:40px;height:24px;align-items:center;}",
+        ".bf-switch input{position:absolute;opacity:0;width:40px;height:24px;left:0;top:0;cursor:pointer;}",
+        ".bf-switch-track{width:40px;height:24px;border-radius:999px;background:var(--background-tertiary,#4f5660);position:relative;transition:background .15s ease;}",
+        ".bf-switch-track::after{content:'';position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s ease;}",
+        ".bf-switch input:checked + .bf-switch-track{background:var(--brand-500,#5865f2);}",
+        ".bf-switch input:checked + .bf-switch-track::after{left:19px;}",
+        ".bf-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px;}",
+        ".bf-plugins-list{max-height:46vh;overflow-y:auto;overflow-x:hidden;padding-right:2px;}",
+        ".bf-manual{margin-top:18px;border-top:1px solid var(--background-modifier-accent,rgba(255,255,255,.08));padding-top:16px;display:grid;gap:10px;}",
+        ".bf-manual h4{margin:0;font-size:var(--text-lg-semibold-size,16px);color:var(--header-primary,#fff);font-weight:700;}",
+        ".bf-section{margin-top:18px;border-top:1px solid var(--background-modifier-accent,rgba(255,255,255,.08));padding-top:16px;display:grid;gap:10px;}",
+        ".bf-section h4{margin:0;font-size:var(--text-lg-semibold-size,16px);color:var(--header-primary,#fff);font-weight:700;}",
         ".bf-field{display:grid;gap:4px;}",
-        ".bf-field label{font-size:12px;color:#9cacbe;}",
-        ".bf-input,.bf-textarea{width:100%;box-sizing:border-box;background:#11151b;color:#e9eef5;border:1px solid #313b47;border-radius:8px;padding:8px 10px;font:12px/1.4 ui-monospace,monospace;}",
-        ".bf-input{font-family:Segoe UI,Tahoma,sans-serif;}",
+        ".bf-field label{font-size:var(--text-xs-normal-size,12px);color:var(--text-muted,#9cacbe);}",
+        ".bf-input,.bf-textarea{width:100%;box-sizing:border-box;background:var(--input-background,#11151b);color:var(--text-normal,#e9eef5);border:1px solid var(--input-border,#313b47);border-radius:8px;padding:9px 11px;font:12px/1.4 ui-monospace,monospace;transition:border-color .12s ease,box-shadow .12s ease;}",
+        ".bf-input:focus,.bf-textarea:focus{outline:none;border-color:var(--brand-500,#5865f2);box-shadow:0 0 0 1px var(--brand-500,#5865f2);}",
+        ".bf-input{font-family:var(--font-primary,Segoe UI,Tahoma,sans-serif);}",
         ".bf-textarea{min-height:120px;resize:vertical;}",
         ".bf-error{color:#ff9fa9;font-size:12px;}",
         ".bf-menu-item{margin-top:6px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;color:#d3dbe4;}",
@@ -1806,9 +1911,191 @@ try {
         "[data-betterfluxer-settings-entry]{pointer-events:auto !important;}",
         "[data-betterfluxer-settings-entry]{position:relative;z-index:5;}",
         "[data-betterfluxer-settings-entry] *{pointer-events:auto !important;}",
+        "[data-bf-action]{pointer-events:auto !important;cursor:pointer !important;}",
+        ".bf-panel,.bf-panel *{pointer-events:auto;}",
         "[data-bf-category]{font-size:12px;letter-spacing:.04em;opacity:.9;}"
       ].join("");
       document.head.appendChild(style);
+    }
+
+    function getNodeArea(node) {
+      if (!node || !node.getBoundingClientRect) return 0;
+      const rect = node.getBoundingClientRect();
+      return Math.max(0, rect.width) * Math.max(0, rect.height);
+    }
+
+    function findSettingsSidebarNode() {
+      return (
+        document.querySelector("nav [id^='settings-tab-']")?.closest("nav") ||
+        document.querySelector("[class*='sidebarNavWrapper']") ||
+        document.querySelector("[class*='sidebarNav']")
+      );
+    }
+
+    function findActiveSettingsTabButton() {
+      return (
+        document.querySelector("button[id^='settings-tab-'][aria-current='page']") ||
+        document.querySelector("button[id^='settings-tab-'][aria-selected='true']") ||
+        document.querySelector("button[id^='settings-tab-'][data-state='active']") ||
+        document.querySelector("button[id^='settings-tab-']")
+      );
+    }
+
+    function findActiveSettingsContentNode() {
+      const activeTab = findActiveSettingsTabButton();
+      const controlledId = String(activeTab?.getAttribute?.("aria-controls") || "").trim();
+      if (controlledId) {
+        const controlled = document.getElementById(controlledId);
+        if (controlled) return controlled;
+      }
+
+      const activeTabId = String(activeTab?.id || "").trim();
+      if (activeTabId) {
+        const byLabelled = document.querySelector("[role='tabpanel'][aria-labelledby='" + activeTabId + "']");
+        if (byLabelled) return byLabelled;
+      }
+
+      return null;
+    }
+
+    function findSettingsContentHost() {
+      if (runtime.ui.panel && runtime.ui.panel.parentNode && document.contains(runtime.ui.panel.parentNode)) {
+        return runtime.ui.panel.parentNode;
+      }
+      const activeTab = findActiveSettingsTabButton();
+
+      const controlledId = String(activeTab?.getAttribute?.("aria-controls") || "").trim();
+      if (controlledId) {
+        const controlled = document.getElementById(controlledId);
+        if (controlled) {
+          runtime.ui.nativeContentNode = controlled;
+          return controlled.parentNode || null;
+        }
+      }
+
+      const sidebar = findSettingsSidebarNode();
+      if (sidebar && sidebar.parentElement) {
+        const siblings = Array.from(sidebar.parentElement.children).filter((n) => n !== sidebar && getNodeArea(n) > 40000);
+        if (siblings.length) {
+          siblings.sort((a, b) => getNodeArea(b) - getNodeArea(a));
+          return siblings[0];
+        }
+      }
+
+      const root = activeTab
+        ? activeTab.closest(
+            "[class*='SettingsModalLayout'][class*='container'], [class*='SettingsModalLayout'][class*='layout'], [role='dialog']"
+          )
+        : null;
+
+      const selectors = [
+        "[class*='SettingsModalLayout'][class*='contentColumn']",
+        "[class*='SettingsModalLayout'][class*='contentView']",
+        "[class*='SettingsModalLayout'][class*='contentWrapper']",
+        "[class*='SettingsModalLayout'][class*='content']",
+        "main[class*='content']",
+        "main"
+      ];
+
+      const searchRoot = root || document;
+      const candidates = [];
+      for (const selector of selectors) {
+        const nodes = Array.from(searchRoot.querySelectorAll(selector));
+        for (const node of nodes) {
+          if (!node || candidates.includes(node)) continue;
+          const isSidebar =
+            node.matches("[class*='sidebar']") ||
+            Boolean(node.querySelector?.("[class*='sidebarNavList'], [id^='settings-tab-']"));
+          if (isSidebar) continue;
+          const rect = node.getBoundingClientRect ? node.getBoundingClientRect() : { width: 0, height: 0 };
+          if (rect.width < 220 || rect.height < 120) continue;
+          candidates.push(node);
+        }
+      }
+      if (candidates.length) {
+        candidates.sort((a, b) => getNodeArea(b) - getNodeArea(a));
+        return candidates[0];
+      }
+      return null;
+    }
+
+    function ensureBetterFluxerContentHost() {
+      const nativeNode = findActiveSettingsContentNode();
+      if (nativeNode && nativeNode.parentNode) {
+        runtime.ui.nativeContentNode = nativeNode;
+        runtime.ui.contentHost = nativeNode.parentNode;
+      } else if (!runtime.ui.contentHost) {
+        runtime.ui.contentHost = findSettingsContentHost();
+      }
+
+      if (!runtime.ui.contentHost) return null;
+      let host = runtime.ui.contentHost.querySelector("[data-bf-settings-host='1']");
+      if (!host) {
+        host = document.createElement("div");
+        host.setAttribute("data-bf-settings-host", "1");
+        host.style.width = "100%";
+        host.style.height = "100%";
+        host.style.minHeight = "100%";
+        host.style.display = "none";
+        runtime.ui.contentHost.appendChild(host);
+      }
+      return host;
+    }
+
+    function showBetterFluxerContent() {
+      const host = ensureBetterFluxerContentHost();
+      if (!host || !runtime.ui.panel) return false;
+
+      const nativeNode = runtime.ui.nativeContentNode || findActiveSettingsContentNode();
+      if (nativeNode && nativeNode !== host) {
+        runtime.ui.nativeContentNode = nativeNode;
+        if (!nativeNode.hasAttribute("data-bf-hidden-by")) {
+          nativeNode.setAttribute("data-bf-hidden-by", "1");
+          nativeNode.setAttribute("data-bf-prev-display", nativeNode.style.display || "");
+        }
+        nativeNode.style.display = "none";
+      }
+
+      if (runtime.ui.panel.parentNode !== host) {
+        host.replaceChildren(runtime.ui.panel);
+      }
+      host.style.display = "block";
+      return true;
+    }
+
+    function hideBetterFluxerContent() {
+      const host = document.querySelector("[data-bf-settings-host='1']");
+      if (host) {
+        host.style.display = "none";
+      }
+      const hiddenNodes = Array.from(document.querySelectorAll("[data-bf-hidden-by='1']"));
+      for (const node of hiddenNodes) {
+        const prev = node.getAttribute("data-bf-prev-display");
+        node.style.display = prev == null ? "" : prev;
+        node.removeAttribute("data-bf-prev-display");
+        node.removeAttribute("data-bf-hidden-by");
+      }
+      runtime.ui.nativeContentNode = null;
+      runtime.ui.nativeContentPrevDisplay = "";
+    }
+
+    function primeNativeSettingsContext() {
+      const byId = [
+        "#settings-tab-advanced",
+        "#settings-tab-language",
+        "#settings-tab-notifications",
+        "#settings-tab-keybinds",
+        "#settings-tab-appearance",
+        "#settings-tab-my_profile"
+      ];
+      for (const selector of byId) {
+        const button = document.querySelector(selector);
+        if (button && typeof button.click === "function") {
+          button.click();
+          return true;
+        }
+      }
+      return false;
     }
 
     function renderPanel(tabName) {
@@ -1817,18 +2104,14 @@ try {
       }
       ensureStyles();
       if (!runtime.ui.panel) {
-        const backdrop = document.createElement("div");
-        backdrop.className = "bf-modal-backdrop";
-        backdrop.innerHTML = [
+        const root = document.createElement("div");
+        root.className = "bf-settings-root";
+        root.innerHTML = [
           "<div class=\\"bf-panel\\">",
-          "  <div class=\\"bf-head\\">",
-          "    <h2>BetterFluxer</h2>",
-          "    <button class=\\"bf-btn\\" data-bf-close>Close</button>",
-          "  </div>",
           "  <div class=\\"bf-body\\">",
           "    <div class=\\"bf-card\\" data-bf-card-plugins>",
           "      <h3>Plugins</h3>",
-          "      <div data-bf-plugins></div>",
+          "      <div class=\\"bf-plugins-list\\" data-bf-plugins></div>",
           "      <div class=\\"bf-manual\\">",
           "        <h4>Manual Install</h4>",
           "        <input class=\\"bf-input\\" type=\\"text\\" data-bf-manual-name placeholder=\\"Plugin name (optional)\\" />",
@@ -1869,13 +2152,64 @@ try {
           "  </div>",
           "</div>"
         ].join("");
-        backdrop.addEventListener("click", (event) => {
-          if (event.target === backdrop) {
-            closePanel();
+        root.addEventListener("pointerdown", (event) => event.stopPropagation());
+        root.addEventListener("mousedown", (event) => event.stopPropagation());
+        root.addEventListener("click", (event) => event.stopPropagation());
+        runtime.ui.panel = root;
+      }
+
+      if (!runtime.ui.pluginControlCaptureBound) {
+        const capturePluginControl = (event) => {
+          const targetEl =
+            event && event.target && event.target.nodeType === 3
+              ? event.target.parentElement
+              : event && event.target && event.target.nodeType === 1
+                ? event.target
+                : null;
+          if (!targetEl) return;
+          if (!runtime.ui.panel || !document.body || !document.body.contains(runtime.ui.panel)) return;
+
+          const deleteBtn = targetEl.closest ? targetEl.closest("[data-bf-delete-plugin]") : null;
+          if (deleteBtn && runtime.ui.panel.contains(deleteBtn)) {
+            event.preventDefault();
+            event.stopPropagation();
+            const pluginId = String(deleteBtn.getAttribute("data-bf-delete-plugin") || "");
+            if (!pluginId) return;
+            try {
+              removePlugin(pluginId);
+              runtime.ui.manualInstallMessage = "Deleted plugin: " + pluginId;
+              showToast("Deleted plugin: " + pluginId, "success");
+              renderPanel("plugins");
+            } catch (error) {
+              showToast("Delete failed: " + String((error && error.message) || error || "unknown"), "error");
+            }
+            return;
           }
-        });
-        backdrop.querySelector("[data-bf-close]").addEventListener("click", () => closePanel());
-        runtime.ui.panel = backdrop;
+
+          const switchWrap = targetEl.closest ? targetEl.closest("[data-bf-switch-plugin]") : null;
+          if (switchWrap && runtime.ui.panel.contains(switchWrap)) {
+            event.preventDefault();
+            event.stopPropagation();
+            const pluginId = String(switchWrap.getAttribute("data-bf-switch-plugin") || "");
+            const checkbox = switchWrap.querySelector("input[type='checkbox']");
+            if (!pluginId || !checkbox) return;
+            const next = !Boolean(checkbox.checked);
+            checkbox.checked = next;
+            try {
+              if (window.BetterFluxer && typeof window.BetterFluxer.setPluginEnabled === "function") {
+                window.BetterFluxer.setPluginEnabled(pluginId, next);
+              } else {
+                setPluginEnabled(pluginId, next);
+              }
+              renderPanel("plugins");
+            } catch (error) {
+              showToast("Toggle failed: " + String((error && error.message) || error || "unknown"), "error");
+            }
+          }
+        };
+        document.addEventListener("pointerdown", capturePluginControl, true);
+        document.addEventListener("click", capturePluginControl, true);
+        runtime.ui.pluginControlCaptureBound = true;
       }
 
       const pluginsRoot = runtime.ui.panel.querySelector("[data-bf-plugins]");
@@ -1885,25 +2219,82 @@ try {
         const row = document.createElement("div");
         row.className = "bf-row";
         const info = document.createElement("div");
-        info.innerHTML = "<div>" + def.id + "</div><div class=\\"bf-meta\\">" + (record?.enabled ? "Enabled" : "Disabled") + "</div>";
+        info.className = "bf-row-info";
+        info.innerHTML =
+          "<div class=\\"bf-row-title\\">" +
+          def.id +
+          "</div><div class=\\"bf-meta\\">" +
+          (record?.enabled ? "Enabled" : "Disabled") +
+          "</div>";
         const controls = document.createElement("div");
+        controls.className = "bf-row-actions";
         const toggle = document.createElement("input");
         toggle.type = "checkbox";
         toggle.checked = Boolean(record?.enabled);
-        toggle.addEventListener("change", () => {
-          window.BetterFluxer.setPluginEnabled(def.id, toggle.checked);
-          renderPanel();
-        });
-        controls.appendChild(toggle);
+        const toggleWrap = document.createElement("label");
+        toggleWrap.className = "bf-switch";
+        toggleWrap.setAttribute("data-bf-switch-plugin", def.id);
+        toggleWrap.style.pointerEvents = "auto";
+        const triggerToggle = (event) => {
+          if (event) event.stopPropagation();
+          const pluginId = String(toggleWrap.getAttribute("data-bf-switch-plugin") || "");
+          if (!pluginId) return;
+          const next = !Boolean(toggle.checked);
+          toggle.checked = next;
+          try {
+            if (window.BetterFluxer && typeof window.BetterFluxer.setPluginEnabled === "function") {
+              window.BetterFluxer.setPluginEnabled(pluginId, next);
+            } else {
+              setPluginEnabled(pluginId, next);
+            }
+            renderPanel("plugins");
+          } catch (error) {
+            showToast("Toggle failed: " + String((error && error.message) || error || "unknown"), "error");
+          }
+        };
+        toggleWrap.onclick = triggerToggle;
+        toggle.onchange = (event) => {
+          if (event) event.stopPropagation();
+          const pluginId = String(toggleWrap.getAttribute("data-bf-switch-plugin") || "");
+          if (!pluginId) return;
+          const next = Boolean(toggle.checked);
+          try {
+            if (window.BetterFluxer && typeof window.BetterFluxer.setPluginEnabled === "function") {
+              window.BetterFluxer.setPluginEnabled(pluginId, next);
+            } else {
+              setPluginEnabled(pluginId, next);
+            }
+            renderPanel("plugins");
+          } catch (error) {
+            showToast("Toggle failed: " + String((error && error.message) || error || "unknown"), "error");
+          }
+        };
+        const toggleTrack = document.createElement("span");
+        toggleTrack.className = "bf-switch-track";
+        toggleWrap.appendChild(toggle);
+        toggleWrap.appendChild(toggleTrack);
+        controls.appendChild(toggleWrap);
         if (isStoredPlugin(def.id)) {
           const removeBtn = document.createElement("button");
           removeBtn.className = "bf-btn";
+          removeBtn.type = "button";
           removeBtn.textContent = "Delete";
-          removeBtn.addEventListener("click", () => {
-            removePlugin(def.id);
-            runtime.ui.manualInstallMessage = "Deleted plugin: " + String(def.id);
-            renderPanel("plugins");
-          });
+          removeBtn.setAttribute("data-bf-delete-plugin", def.id);
+          removeBtn.style.pointerEvents = "auto";
+          const triggerDelete = (event) => {
+            if (event) event.stopPropagation();
+            const pluginId = String(removeBtn.getAttribute("data-bf-delete-plugin") || "");
+            if (!pluginId) return;
+            try {
+              removePlugin(pluginId);
+              runtime.ui.manualInstallMessage = "Deleted plugin: " + pluginId;
+              showToast("Deleted plugin: " + pluginId, "success");
+              renderPanel("plugins");
+            } catch (error) {
+              showToast("Delete failed: " + String((error && error.message) || error || "unknown"), "error");
+            }
+          };
+          removeBtn.onclick = triggerDelete;
           controls.appendChild(removeBtn);
         }
         row.appendChild(info);
@@ -2047,14 +2438,31 @@ try {
       settingsCard.style.display = showingPlugins ? "none" : "";
 
       updateSettingsEntrySelection();
-      if (!document.body.contains(runtime.ui.panel)) {
-        document.body.appendChild(runtime.ui.panel);
+      if (!showBetterFluxerContent() && (runtime.ui.activeTab === "plugins" || runtime.ui.activeTab === "settings")) {
+        const sidebar = findSettingsSidebarNode();
+        if (sidebar && sidebar.parentElement) {
+          let fallbackHost = sidebar.parentElement.querySelector("[data-bf-settings-host='1']");
+          if (!fallbackHost) {
+            fallbackHost = document.createElement("div");
+            fallbackHost.setAttribute("data-bf-settings-host", "1");
+            fallbackHost.style.flex = "1 1 auto";
+            fallbackHost.style.minWidth = "0";
+            fallbackHost.style.height = "100%";
+            sidebar.insertAdjacentElement("afterend", fallbackHost);
+          }
+          fallbackHost.replaceChildren(runtime.ui.panel);
+          fallbackHost.style.display = "block";
+        } else if (primeNativeSettingsContext()) {
+          requestAnimationFrame(() => requestAnimationFrame(() => renderPanel(runtime.ui.activeTab)));
+        }
       }
     }
 
     function closePanel() {
-      if (runtime.ui.panel && runtime.ui.panel.parentNode) {
-        runtime.ui.panel.parentNode.removeChild(runtime.ui.panel);
+      hideBetterFluxerContent();
+      const fallbackHost = document.querySelector("[data-bf-settings-host='1']");
+      if (fallbackHost && fallbackHost.parentNode) {
+        fallbackHost.parentNode.removeChild(fallbackHost);
       }
     }
 
@@ -2205,7 +2613,7 @@ try {
       }
       if (runtime.ui.activeTab === "settings" && nodes.settings) {
         nodes.settings.classList.add("bf-settings-active");
-      } else if (nodes.plugins) {
+      } else if (runtime.ui.activeTab === "plugins" && nodes.plugins) {
         nodes.plugins.classList.add("bf-settings-active");
       }
     }
@@ -2243,52 +2651,21 @@ try {
       if (node.tagName === "A") {
         node.setAttribute("href", "#");
       }
-      node.addEventListener(
-        "pointerdown",
-        (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (typeof event.stopImmediatePropagation === "function") {
-            event.stopImmediatePropagation();
-          }
-        },
-        true
-      );
-      node.addEventListener(
-        "mousedown",
-        (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (typeof event.stopImmediatePropagation === "function") {
-            event.stopImmediatePropagation();
-          }
-        },
-        true
-      );
-      node.addEventListener(
-        "click",
-        (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (typeof event.stopImmediatePropagation === "function") {
-            event.stopImmediatePropagation();
-          }
-          onActivate();
-        },
-        true
-      );
+      node.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onActivate();
+      });
       node.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
+          event.stopPropagation();
           onActivate();
         }
       });
       node.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === "function") {
-          event.stopImmediatePropagation();
-        }
         onActivate();
       };
     }
@@ -2427,13 +2804,18 @@ try {
         requestAnimationFrame(() => {
           pending = false;
           injectSettingsCategory();
+          if (runtime.ui.activeTab === "plugins" || runtime.ui.activeTab === "settings") {
+            renderPanel(runtime.ui.activeTab);
+          }
           applyCustomSplashIcon(document);
+          injectClientInfoVersionLine(document);
         });
       };
       runtime.ui.observer = new MutationObserver(() => schedule());
       runtime.ui.observer.observe(document.documentElement, { childList: true, subtree: true, attributes: false });
       injectSettingsCategory();
       applyCustomSplashIcon(document);
+      injectClientInfoVersionLine(document);
 
       document.addEventListener(
         "click",
@@ -2451,6 +2833,22 @@ try {
           renderPanel(tab);
         },
         true
+      );
+
+      document.addEventListener(
+        "click",
+        (event) => {
+          const tabButton = event.target && event.target.closest ? event.target.closest("button[id^='settings-tab-']") : null;
+          if (!tabButton) return;
+          if (tabButton.getAttribute("data-betterfluxer-settings-entry") === "1") return;
+          if (runtime.ui.activeTab !== "plugins" && runtime.ui.activeTab !== "settings") return;
+          runtime.ui.activeTab = null;
+          requestAnimationFrame(() => {
+            closePanel();
+            updateSettingsEntrySelection();
+          });
+        },
+        false
       );
     }
 
@@ -2470,6 +2868,7 @@ try {
       }
       mountObservers();
       applyCustomSplashIcon(document);
+      injectClientInfoVersionLine(document);
       const callPluginMethod = (pluginId, methodName, ...args) => {
         const id = String(pluginId || "");
         const method = String(methodName || "");
@@ -2912,7 +3311,9 @@ function escapeRegex(value) {
 module.exports = {
   DEFAULT_INSTALL_ROOTS,
   DEFAULT_INSTALL_ROOT,
+  DEFAULT_SPLASH_PULSE_COLOR,
   getDefaultInstallRoots,
+  getDefaultSplashIconDataUrl,
   resolveInstallRoot,
   parseArgs,
   getInstalledVersions,

@@ -1,91 +1,51 @@
 # BetterFluxer
 
-BetterFluxer is a BetterDiscord-style runtime for Fluxer. It provides:
+BetterFluxer is a BetterDiscord-style runtime + injector for Fluxer desktop.
 
-- Plugin discovery and lifecycle (`start`, `stop`, `reload`)
-- Safe monkey patching API (`before`, `after`, `instead`, `unpatchAll`)
-- Per-plugin persistent JSON storage
-- Fluxer preload integration pattern
-- Docs: see [`docs/README.md`](./docs/README.md)
+Main features:
 
-## Quick start
+- Plugin lifecycle (`start`, `stop`, `reload`, enable/disable)
+- Safe patching API (`before`, `after`, `instead`, `unpatchAll`)
+- Per-plugin persistent storage
+- Injected settings UI inside Fluxer settings panel
+- Plugin store support (remote index + install/remove)
+
+Docs index: [`docs/README.md`](./docs/README.md)
+
+## Development
+
+Install and test:
 
 ```bash
 npm install
 npm test
-npm start
 ```
 
-`npm start` loads plugins from `./plugins`.
-
-## NW injector app
-
-This repo includes an NW.js injector app that patches Fluxer and loads BetterFluxer plugins.
-
-Start the injector app:
+Run injector GUI (NW.js):
 
 ```bash
 npm start
 ```
 
-## Inject into installed Fluxer desktop app
+## Build
 
-If you want BetterFluxer injected into the real Fluxer installation (instead of using the custom launcher), use the injector CLI.
-
-GUI option (recommended):
+Build injector packages:
 
 ```bash
-npm start
-```
-
-## Build Windows EXE
-
-Package the Injector GUI into Windows distributables:
-
-```bash
-npm install
 npm run dist:win
-```
-
-Output is written to `dist/` as a packaged app folder containing:
-
-- `BetterFluxerInjector.exe`
-
-Useful variants:
-
-```bash
 npm run dist:win:onefile
 npm run dist:linux
+```
+
+Bridge builds:
+
+```bash
 npm run dist:bridge:win
 npm run dist:bridge:msi
 npm run dist:bridge:linux
 ```
 
-On Linux, the launcher applies GTK/X11-safe defaults automatically. If needed, you can still override with your own env vars/flags.
-On Linux, the injector also inspects the running Fluxer process (`/proc`) to detect PID, AppImage path, and candidate app path.
-If Fluxer runs from a mounted AppImage (`/tmp/.mount_*`), that path is typically read-only and cannot be patched persistently.
-When detected, the injector can install/extract the AppImage into `~/.fluxer` and create a desktop entry at `~/.local/share/applications/fluxer.desktop`.
-On Linux, the injector also has an `Install Latest Fluxer (Linux)` button that downloads from `https://api.fluxer.app/dl/desktop/stable/linux/x64/latest/appimage` and installs to `~/.fluxer/fluxer` (auto-set as app path).
-If Linux install-root auto-detection fails, the injector falls back to `~/.fluxer/fluxer`.
-
-The GUI includes:
-
-- install/version detection
-- injection status panel
-- built-in guide
-- `Close Fluxer` button
-- `Inject` / `Uninject` actions
-- BetterFluxer settings entry injection (sidebar category + plugin toggles/settings panel)
-
-Default install root it searches:
-
-- `C:\Users\<you>\AppData\Local\fluxer_app`
-- `~/.fluxer/fluxer` (Linux preferred)
-- `~/.local/share/fluxer_app` (Linux)
-- `~/.config/fluxer_app` (Linux fallback)
-- `~/.config/Fluxer` (Linux fallback)
-- Auto-selects newest `app-x.y.z` folder unless you pass `--version`.
-- If your layout is different, use `--app-path` to point directly at the Fluxer app folder.
+## Inject / Uninject (CLI)
 
 Inject:
 
@@ -93,113 +53,43 @@ Inject:
 npm run inject
 ```
 
-Inject specific version:
+Inject specific app/version:
 
 ```bash
 npm run inject -- --version=0.0.8
-```
-
-Inject specific app folder directly:
-
-```bash
 npm run inject -- --app-path="C:\Users\<USERNAME>\AppData\Local\fluxer_app\app-0.0.8"
 ```
 
-Dry-run (no file changes):
+Dry run:
 
 ```bash
 npm run inject -- --app-path=".\app_do_not_edit" --dry-run
 ```
 
-Remove injection:
+Uninject:
 
 ```bash
 npm run uninject -- --app-path="C:\Users\<USERNAME>\AppData\Local\fluxer_app\app-0.0.8"
 ```
 
-What gets modified:
+Default install roots auto-detected by OS:
 
-- `resources\app.asar.unpacked\src-electron\dist\preload\index.js`
-: backup file is created once at `index.js.betterfluxer.bak`
-- `resources\app.asar.unpacked\betterfluxer\` (runtime + plugins)
+- Windows: `%USERPROFILE%\AppData\Local\fluxer_app`
+- Linux: `~/.fluxer/fluxer`, `$XDG_DATA_HOME/fluxer_app`, `$XDG_CONFIG_HOME/fluxer_app`, `~/.config/Fluxer`
+- macOS: `~/Library/Application Support/fluxer_app`
 
-If your Fluxer build only contains `resources\app.asar\...` (without `app.asar.unpacked` preload), this injector cannot patch that packed layout yet.
+## What injection modifies
 
-Important:
+- `resources/app.asar.unpacked/src-electron/dist/preload/index.js`
+  - backup: `index.js.betterfluxer.bak`
+- `resources/app.asar.unpacked/betterfluxer/`
 
-- Fluxer should be closed before file patching.
-- In the GUI, keep `Close Fluxer before inject/uninject` enabled (Windows/Linux/macOS if supported).
-- In CLI mode, close Fluxer first manually.
+If Fluxer only has packed `app.asar` without `app.asar.unpacked` preload, injection is not supported.
 
-## Structure
+## Repo layout
 
-- `src/betterfluxer.js`: Runtime entry point
-- `src/core/plugin-manager.js`: Loads/unloads/reloads plugins
-- `src/core/patcher.js`: BetterDiscord-like patching utility
-- `src/core/plugin-storage.js`: Per-plugin JSON storage
-- `src/integration/electron-preload.example.js`: Example Electron preload wiring
-- `plugins/HelloFluxer`: Example plugin
-- `plugins/InjectedBadge`: Visual injection check plugin
-
-## Plugin format
-
-Create a folder inside `plugins/` with a `manifest.json` and `index.js`.
-
-`manifest.json`:
-
-```json
-{
-  "name": "MyPlugin",
-  "version": "1.0.0",
-  "description": "My Fluxer plugin",
-  "author": "You",
-  "main": "index.js"
-}
-```
-
-`index.js`:
-
-```js
-module.exports = class MyPlugin {
-  constructor(api) {
-    this.api = api;
-  }
-
-  start() {
-    this.api.logger.info("Plugin started");
-    this.api.storage.set("enabledAt", Date.now());
-  }
-
-  stop() {
-    this.api.patcher.unpatchAll();
-    this.api.logger.info("Plugin stopped");
-  }
-};
-```
-
-## Plugin API
-
-Each plugin receives `api` in its constructor:
-
-- `api.logger`: scoped logger (`debug/info/warn/error`)
-- `api.storage`: persistent key/value
-- `api.patcher`:
-  - `before(target, method, callback)`
-  - `after(target, method, callback)`
-  - `instead(target, method, callback)`
-  - `unpatchAll()`
-- `api.app`: app context passed from Fluxer
-
-## Integrating with Fluxer (Electron)
-
-1. Copy and adapt [`src/integration/electron-preload.example.js`](./src/integration/electron-preload.example.js).
-2. In Fluxer, set BrowserWindow preload to your adapted preload file.
-3. Pass Fluxer internals through `appContext` so plugins can patch app functions/components.
-4. Package a writable runtime folder (example: `<resources>/betterfluxer`) containing `plugins/` and `data/`.
-
-## Next extensions
-
-- Plugin enable/disable state persisted in settings
-- Theme/CSS manager similar to BetterDiscord themes
-- Signed plugin repository + update checks
-- In-app settings UI for plugin controls
+- `nw/`: Injector GUI app (NW.js)
+- `bridge-nw/`: Bridge app and local bridge script
+- `scripts/lib/fluxer-injector-utils.js`: Core patch/inject logic
+- `src/`: Runtime core used by injected BetterFluxer
+- `plugins/` and/or `nw/plugins/`: Default plugins loaded by injector

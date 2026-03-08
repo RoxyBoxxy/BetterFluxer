@@ -17,6 +17,7 @@ cache/
 # Local app copy / extraction workspace
 app_do_not_edit/
 MyPlugins/
+MainFluxerApp/
 # Logs
 *.log
 npm-debug.log*

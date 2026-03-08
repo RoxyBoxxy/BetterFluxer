@@ -21,10 +21,13 @@ const runtime = createBetterFluxer({
 window.addEventListener("DOMContentLoaded", () => {
   runtime.start();
 
-  window.BetterFluxer = {
+  const api = runtime.getPublicApi ? runtime.getPublicApi() : {
     listPlugins: () => runtime.listPlugins(),
     reloadPlugin: (pluginId) => runtime.reloadPlugin(pluginId)
   };
+  window.BetterFluxer = api;
+  window.betterFluxerDebug = api;
+  window.bfDebug = api;
 });
 
 window.addEventListener("beforeunload", () => {

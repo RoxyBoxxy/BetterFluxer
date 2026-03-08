@@ -12,12 +12,21 @@ Live module instances for common app surfaces:
 - `messages`
 - `guildList`
 - `channels`
+- `members` (alias: `userList`)
+- `navigation`
+- `modals`
+
+Fluxer-focused helpers now include:
+- tab resolution/open helpers in `settingsSidebar`
+- channel and guild ID targeting helpers in `channels` / `guildList`
+- visible member ID helpers in `members`
+- route parsing and channel/DM navigation in `navigation`
 
 ### `classes`
 Class constructors for building custom modules.
 
 ### `openSettings(tabName?: "plugins" | "settings"): void`
-Opens BetterFluxer settings modal.
+Opens BetterFluxer settings content inside Fluxer's settings right pane.
 
 ### `loadStoreIndex(): Promise<Array<{ id: string, name: string, url: string }>>`
 Fetches remote plugin index from store URL.
@@ -84,6 +93,9 @@ Same debug-safe methods exposed into main world under context isolation:
 - `messages`
 - `guildList`
 - `channels`
+- `members` / `userList`
+- `navigation`
+- `modals`
 - `settingsSidebar`
 - `registerSettingsCategory`
 - `unregisterSettingsCategory`

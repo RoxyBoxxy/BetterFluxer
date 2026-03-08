@@ -53,6 +53,43 @@ function run(command, args, options = {}) {
   }
 }
 
+function runCapture(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: ["ignore", "pipe", "ignore"],
+    shell: false,
+    encoding: "utf8",
+    ...options
+  });
+  if (result.error || result.status !== 0) return "";
+  return String(result.stdout || "").trim();
+}
+
+function resolveGitTagVersion(root, fallbackVersion) {
+  const rawTag = runCapture("git", ["describe", "--tags", "--abbrev=0"], { cwd: root });
+  const tag = String(rawTag || "").trim();
+  if (!tag) return String(fallbackVersion || "1.0.0");
+  return tag;
+}
+
+function writeBuildInfo(stageRoot, root, appVersion) {
+  const gitCommit = runCapture("git", ["rev-parse", "HEAD"], { cwd: root });
+  const gitBranch = runCapture("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root });
+  const gitTag = runCapture("git", ["describe", "--tags", "--abbrev=0"], { cwd: root });
+  const versionFromTag = resolveGitTagVersion(root, appVersion);
+  const payload = {
+    app: "BetterFluxerInjector",
+    platform: "win-x64",
+    version: String(versionFromTag || appVersion || "1.0.0"),
+    buildTimeUtc: new Date().toISOString(),
+    gitCommit: gitCommit || null,
+    gitBranch: gitBranch || null,
+    gitTag: gitTag || null,
+    channel: process.env.BETTERFLUXER_CHANNEL || "local"
+  };
+  const outPath = path.join(stageRoot, "nw", "build-info.json");
+  fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
 function pruneLocales(buildDir) {
   const localesDir = path.join(buildDir, "locales");
   if (!fs.existsSync(localesDir)) return;
@@ -131,6 +168,7 @@ function createStage(root, outDir) {
     }
   };
   fs.writeFileSync(path.join(stageRoot, "package.json"), `${JSON.stringify(stagedPackage, null, 2)}\n`, "utf8");
+  writeBuildInfo(stageRoot, root, stagedPackage.version || appVersion);
 
   return stageRoot;
 }
