@@ -662,9 +662,9 @@ try {
       const versionText = String(BETTERFLUXER_VERSION || "dev").trim() || "dev";
       const checksumText = String(BETTERFLUXER_CHECKSUM || "").trim();
       if (checksumText) {
-        return "BetterFluxer v" + versionText + " (chk:" + checksumText + ")";
+        return "BetterFluxer " + versionText + " (chk:" + checksumText + ")";
       }
-      return "BetterFluxer v" + versionText;
+      return "BetterFluxer " + versionText;
     }
 
     function injectClientInfoVersionLine(root) {
@@ -1867,7 +1867,7 @@ try {
       style.id = "betterfluxer-ui-styles";
       style.textContent = [
         ".bf-settings-root{display:block;width:100%;height:100%;min-height:100%;overflow:hidden;}",
-        ".bf-panel{width:100%;max-width:820px;height:100%;min-height:100%;margin:0 auto;overflow-x:hidden;overflow-y:auto;background:transparent;color:var(--text-normal,#f4f6f8);border:0;border-radius:0;box-shadow:none;font-family:var(--font-primary,Segoe UI,Tahoma,sans-serif);}",
+        ".bf-panel{width:100%;max-width:820px;height:100%;min-height:100%;margin:0 auto;overflow-x:hidden;overflow-y:auto;background:transparent;color:var(--text-normal,#f4f6f8);border:0;border-radius:0;box-shadow:none;font-family:var(--font-primary,Segoe UI,Tahoma,sans-serif);padding-top:35px;}",
         ".bf-head{display:none;}",
         ".bf-head h2{margin:0;font-size:18px;}",
         ".bf-body{padding:8px 24px 28px 24px;display:grid;gap:28px;min-height:100%;}",
