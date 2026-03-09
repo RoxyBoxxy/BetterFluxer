@@ -1,4 +1,4 @@
-# BetterFluxer
+![BetterFluxer](https://github.com/RoxyBoxxy/BetterFluxer/blob/main/nw/assets/betterfluxertrans.png?raw=true)
 
 BetterFluxer is a BetterDiscord-style runtime + injector for Fluxer desktop.
 
