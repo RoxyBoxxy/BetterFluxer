@@ -39,6 +39,20 @@ function loadNwBuilder() {
   }
 }
 
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    shell: false,
+    ...options
+  });
+  if (result.error) {
+    throw new Error(`${command} failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+  }
+}
+
 function runCapture(command, args, options = {}) {
   const result = spawnSync(command, args, {
     stdio: ["ignore", "pipe", "ignore"],
@@ -76,15 +90,67 @@ function writeBuildInfo(stageRoot, root, appVersion) {
   fs.writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+function buildLinuxDesktopPatchBundle(root) {
+  const desktopRoot = path.join(root, "do_not_edit", "fluxer", "fluxer_desktop");
+  const desktopPackagePath = path.join(desktopRoot, "package.json");
+  if (!fs.existsSync(desktopPackagePath)) {
+    throw new Error(`Missing vendored fluxer_desktop source: ${desktopRoot}`);
+  }
+  run("node", ["scripts/build.mjs"], {
+    cwd: desktopRoot,
+    env: {
+      ...process.env,
+      NODE_ENV: "production"
+    }
+  });
+}
+
+function resolveAsarModuleSource(root) {
+  const candidates = [
+    path.join(root, "node_modules", "@electron", "asar"),
+    path.join(root, "do_not_edit", "fluxer", "fluxer_desktop", "node_modules", "@electron", "asar")
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "lib", "asar.js"))) {
+      return candidate;
+    }
+  }
+  throw new Error('Missing "@electron/asar" runtime for Linux injector packaging.');
+}
+
+function copyLinuxInjectorPatchAssets(root, stageRoot) {
+  const desktopMainSource = path.join(root, "do_not_edit", "fluxer", "fluxer_desktop", "dist", "main", "index.js");
+  if (!fs.existsSync(desktopMainSource)) {
+    throw new Error(`Missing Linux desktop main bundle: ${desktopMainSource}`);
+  }
+
+  const stagedDesktopMain = path.join(
+    stageRoot,
+    "do_not_edit",
+    "fluxer",
+    "fluxer_desktop",
+    "dist",
+    "main"
+  );
+  fs.mkdirSync(stagedDesktopMain, { recursive: true });
+  fs.copyFileSync(desktopMainSource, path.join(stagedDesktopMain, "index.js"));
+
+  const asarSource = resolveAsarModuleSource(root);
+  const stagedAsarRoot = path.join(stageRoot, "node_modules", "@electron", "asar");
+  copyRecursive(asarSource, stagedAsarRoot);
+}
+
 function createStage(root, outDir) {
   const stageRoot = path.join(root, ".tmp-nw-stage-linux");
   ensureCleanDir(stageRoot);
 
+  buildLinuxDesktopPatchBundle(root);
   copyRecursive(path.join(root, "nw"), path.join(stageRoot, "nw"));
   copyRecursive(path.join(root, "scripts"), path.join(stageRoot, "scripts"));
   copyPluginsIntoStage(root, stageRoot);
   copyRecursive(path.join(root, "src"), path.join(stageRoot, "src"));
   copyRecursive(path.join(root, "docs"), path.join(stageRoot, "docs"));
+  copyLinuxInjectorPatchAssets(root, stageRoot);
 
   const rootReadme = path.join(root, "README.md");
   if (fs.existsSync(rootReadme)) {

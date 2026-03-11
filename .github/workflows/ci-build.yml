@@ -125,6 +125,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install vendored Fluxer desktop build dependencies
+        run: npm ci
+        working-directory: do_not_edit/fluxer/fluxer_desktop
+
       - name: Build injector linux package
         run: npm run dist:linux
 

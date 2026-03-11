@@ -135,6 +135,8 @@ function getFluxerAppPath(options = {}) {
 
 function resolvePaths(appPath) {
   const resourcesPath = path.join(appPath, "resources");
+  const asarPath = path.join(resourcesPath, "app.asar");
+  const backupAsarPath = `${asarPath}.betterfluxer.bak`;
   const unpackedPath = path.join(resourcesPath, "app.asar.unpacked");
   const preloadDir = path.join(unpackedPath, "src-electron", "dist", "preload");
   const mainDir = path.join(unpackedPath, "src-electron", "dist", "main");
@@ -146,6 +148,8 @@ function resolvePaths(appPath) {
   const bootstrapPath = path.join(injectedRoot, "bootstrap.js");
   return {
     resourcesPath,
+    asarPath,
+    backupAsarPath,
     unpackedPath,
     preloadDir,
     mainDir,
@@ -156,6 +160,79 @@ function resolvePaths(appPath) {
     injectedRoot,
     bootstrapPath
   };
+}
+
+function resolveSourceDesktopMainBundle(sourceRoot) {
+  const candidate = path.join(sourceRoot, "do_not_edit", "fluxer", "fluxer_desktop", "dist", "main", "index.js");
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+function resolveAsarModulePath(sourceRoot) {
+  const candidates = [
+    path.join(sourceRoot, "node_modules", "@electron", "asar", "lib", "asar.js"),
+    path.join(
+      sourceRoot,
+      "do_not_edit",
+      "fluxer",
+      "fluxer_desktop",
+      "node_modules",
+      "@electron",
+      "asar",
+      "lib",
+      "asar.js"
+    )
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function patchPackagedMainBundle(asarPath, backupAsarPath, replacementMainPath, sourceRoot) {
+  if (!asarPath || !fs.existsSync(asarPath)) {
+    return { changed: false, skipped: true, reason: "asar-missing" };
+  }
+  if (!replacementMainPath || !fs.existsSync(replacementMainPath)) {
+    return { changed: false, skipped: true, reason: "replacement-main-missing" };
+  }
+
+  const asarModulePath = resolveAsarModulePath(sourceRoot);
+  if (!asarModulePath || !fs.existsSync(asarModulePath)) {
+    return { changed: false, skipped: true, reason: "asar-module-missing" };
+  }
+
+  const asar = require(asarModulePath);
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "betterfluxer-asar-"));
+  const extractedDir = path.join(tmpRoot, "app");
+  const tempAsarPath = path.join(tmpRoot, "app.asar");
+  const archiveMainPath = path.join(extractedDir, "src-electron", "dist", "main", "index.js");
+  const replacementMapPath = `${replacementMainPath}.map`;
+  const archiveMapPath = `${archiveMainPath}.map`;
+
+  try {
+    asar.extractAll(asarPath, extractedDir);
+    if (!fs.existsSync(archiveMainPath)) {
+      return { changed: false, skipped: true, reason: "archive-main-missing" };
+    }
+    if (!fs.existsSync(backupAsarPath)) {
+      fs.copyFileSync(asarPath, backupAsarPath);
+    }
+
+    fs.copyFileSync(replacementMainPath, archiveMainPath);
+    if (fs.existsSync(replacementMapPath)) {
+      fs.copyFileSync(replacementMapPath, archiveMapPath);
+    }
+
+    await asar.createPackage(extractedDir, tempAsarPath);
+    fs.copyFileSync(tempAsarPath, asarPath);
+    return { changed: true, skipped: false };
+  } finally {
+    try {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    } catch (_) {}
+  }
 }
 
 function ensureFileExists(filePath, label) {
@@ -506,6 +583,300 @@ try {
     };
     runtime.uiClasses = null;
     runtime.classTypes = null;
+
+    function toLinuxDisplayMediaConstraints(constraints) {
+      const c = constraints && typeof constraints === "object" ? constraints : {};
+      const wantsAudio = c.audio !== false && c.audio != null;
+      return {
+        video: {
+          frameRate: 30
+        },
+        audio: Boolean(wantsAudio)
+      };
+    }
+
+    async function getScreenStream(constraints) {
+      const displayConstraints = toLinuxDisplayMediaConstraints(constraints);
+      return await navigator.mediaDevices.getDisplayMedia({
+        video: displayConstraints.video,
+        audio: displayConstraints.audio
+      });
+    }
+
+    function isDesktopCaptureRequest(constraints) {
+      const c = constraints && typeof constraints === "object" ? constraints : {};
+      const hasDesktopTokens = (track) => {
+        if (!track || typeof track !== "object") return false;
+        const mandatory = track.mandatory && typeof track.mandatory === "object" ? track.mandatory : null;
+        if (mandatory) {
+          if (String(mandatory.chromeMediaSource || "").toLowerCase() === "desktop") return true;
+          if (String(mandatory.chromeMediaSourceId || "").trim()) return true;
+        }
+        if (String(track.chromeMediaSource || "").toLowerCase() === "desktop") return true;
+        if (String(track.chromeMediaSourceId || "").trim()) return true;
+        return false;
+      };
+      return hasDesktopTokens(c.video) || hasDesktopTokens(c.audio);
+    }
+
+    function patchLinuxDisplayCapture() {
+      try {
+        if (!process || process.platform !== "linux") return;
+      } catch (_e) {
+        return;
+      }
+      const mediaDevices = navigator && navigator.mediaDevices ? navigator.mediaDevices : null;
+      if (!mediaDevices) return;
+      if (typeof mediaDevices.getUserMedia !== "function" || typeof mediaDevices.getDisplayMedia !== "function") return;
+      if (mediaDevices.__bfForceDisplayMediaPatched) return;
+
+      const proto = Object.getPrototypeOf(mediaDevices);
+      const nativeGetUserMedia =
+        proto && typeof proto.getUserMedia === "function"
+          ? proto.getUserMedia.bind(mediaDevices)
+          : mediaDevices.getUserMedia.bind(mediaDevices);
+      const nativeGetDisplayMedia =
+        proto && typeof proto.getDisplayMedia === "function"
+          ? proto.getDisplayMedia.bind(mediaDevices)
+          : mediaDevices.getDisplayMedia.bind(mediaDevices);
+
+      mediaDevices.getUserMedia = async (constraints) => {
+        if (!isDesktopCaptureRequest(constraints)) {
+          return nativeGetUserMedia(constraints);
+        }
+        const displayConstraints = toLinuxDisplayMediaConstraints(constraints);
+        try {
+          return await getScreenStream(constraints);
+        } catch (_error) {
+          return nativeGetDisplayMedia(displayConstraints);
+        }
+      };
+
+      try {
+        mediaDevices.__bfForceDisplayMediaPatched = true;
+      } catch (_e) {}
+      try {
+        console.info("[BetterFluxer] Linux display capture patched: forcing getDisplayMedia.");
+      } catch (_e) {}
+    }
+
+    async function chooseLinuxDisplaySourceId(requestedId) {
+      const electronApi = window && window.electron ? window.electron : null;
+      if (!electronApi || typeof electronApi.getDesktopSources !== "function") {
+        return String(requestedId || "");
+      }
+
+      let sources = [];
+      try {
+        const result = await electronApi.getDesktopSources(["window", "screen"]);
+        if (Array.isArray(result)) sources = result;
+      } catch (_e) {
+        return String(requestedId || "");
+      }
+
+      const requested = String(requestedId || "").trim();
+      if (!requested) {
+        const screen = sources.find((item) => String(item && item.id || "").startsWith("screen:"));
+        return String((screen && screen.id) || (sources[0] && sources[0].id) || "");
+      }
+
+      const exact = sources.find((item) => String(item && item.id || "") === requested);
+      if (exact) return requested;
+
+      const prefix = requested.includes(":") ? requested.split(":")[0] : "";
+      if (prefix) {
+        const sameType = sources.find((item) => String(item && item.id || "").startsWith(prefix + ":"));
+        if (sameType) return String(sameType.id || "");
+      }
+
+      const screen = sources.find((item) => String(item && item.id || "").startsWith("screen:"));
+      return String((screen && screen.id) || (sources[0] && sources[0].id) || "");
+    }
+
+    async function logLinuxDisplaySources(reason) {
+      const electronApi = window && window.electron ? window.electron : null;
+      if (!electronApi || typeof electronApi.getDesktopSources !== "function") return;
+      try {
+        const sources = await electronApi.getDesktopSources(["window", "screen"]);
+        if (!Array.isArray(sources)) return;
+        const screens = [];
+        const windows = [];
+        for (const item of sources) {
+          const id = String(item && item.id || "");
+          const name = String(item && item.name || "");
+          const entry = { id, name };
+          if (id.startsWith("screen:")) screens.push(entry);
+          else if (id.startsWith("window:")) windows.push(entry);
+        }
+        console.info("[BetterFluxer] Linux display source snapshot (" + String(reason || "unknown") + "):", {
+          total: sources.length,
+          screens,
+          windows
+        });
+      } catch (_e) {}
+    }
+
+    async function showLinuxDisplaySourcePicker(requestId, withAudio) {
+      const electronApi = window && window.electron ? window.electron : null;
+      if (!electronApi || typeof electronApi.getDesktopSources !== "function") {
+        return "";
+      }
+
+      let sources = [];
+      try {
+        const result = await electronApi.getDesktopSources(["window", "screen"]);
+        if (Array.isArray(result)) {
+          sources = result
+            .map((item) => ({
+              id: String((item && item.id) || ""),
+              name: String((item && item.name) || "")
+            }))
+            .filter((item) => item.id);
+        }
+      } catch (_error) {
+        return "";
+      }
+
+      if (!sources.length) {
+        try {
+          console.warn("[BetterFluxer] Linux picker: no display sources available.", { requestId });
+        } catch (_error) {}
+        return "";
+      }
+
+      sources.sort((a, b) => {
+        const aScreen = a.id.startsWith("screen:");
+        const bScreen = b.id.startsWith("screen:");
+        if (aScreen !== bScreen) return aScreen ? -1 : 1;
+        return a.id.localeCompare(b.id);
+      });
+
+      return await new Promise((resolve) => {
+        const existing = document.getElementById("bf-linux-display-picker");
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+        const root = document.createElement("div");
+        root.id = "bf-linux-display-picker";
+        root.style.cssText = [
+          "position:fixed",
+          "inset:0",
+          "z-index:2147483647",
+          "background:rgba(5,7,12,0.72)",
+          "backdrop-filter:blur(4px)",
+          "display:flex",
+          "align-items:center",
+          "justify-content:center"
+        ].join(";");
+
+        const card = document.createElement("div");
+        card.style.cssText = [
+          "width:min(700px,92vw)",
+          "max-height:82vh",
+          "overflow:auto",
+          "background:#0f172a",
+          "color:#e2e8f0",
+          "border:1px solid rgba(148,163,184,0.35)",
+          "border-radius:12px",
+          "box-shadow:0 24px 80px rgba(2,6,23,0.7)",
+          "padding:14px"
+        ].join(";");
+
+        const title = document.createElement("div");
+        title.textContent = "BetterFluxer Screen Share Picker";
+        title.style.cssText = "font-size:16px;font-weight:700;margin-bottom:6px;";
+        card.appendChild(title);
+
+        const subtitle = document.createElement("div");
+        subtitle.textContent = "Choose a source to share";
+        subtitle.style.cssText = "font-size:12px;opacity:.85;margin-bottom:10px;";
+        card.appendChild(subtitle);
+
+        const list = document.createElement("div");
+        list.style.cssText = "display:grid;grid-template-columns:1fr;gap:8px;";
+
+        const close = (chosenId) => {
+          if (root.parentNode) root.parentNode.removeChild(root);
+          resolve(String(chosenId || ""));
+        };
+
+        for (const source of sources) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          const label = source.name || source.id;
+          btn.textContent = label + " (" + source.id + ")";
+          btn.style.cssText = [
+            "text-align:left",
+            "padding:10px 12px",
+            "border-radius:8px",
+            "border:1px solid rgba(148,163,184,0.35)",
+            "background:#111827",
+            "color:#f8fafc",
+            "cursor:pointer"
+          ].join(";");
+          btn.onmouseenter = () => {
+            btn.style.background = "#1f2937";
+            btn.style.borderColor = "rgba(96,165,250,0.9)";
+          };
+          btn.onmouseleave = () => {
+            btn.style.background = "#111827";
+            btn.style.borderColor = "rgba(148,163,184,0.35)";
+          };
+          btn.onclick = () => close(source.id);
+          list.appendChild(btn);
+        }
+
+        card.appendChild(list);
+
+        const footer = document.createElement("div");
+        footer.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:12px;";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.style.cssText = [
+          "padding:8px 10px",
+          "border-radius:8px",
+          "border:1px solid rgba(148,163,184,0.4)",
+          "background:#0b1220",
+          "color:#cbd5e1",
+          "cursor:pointer"
+        ].join(";");
+        cancelBtn.onclick = () => close("");
+        footer.appendChild(cancelBtn);
+
+        card.appendChild(footer);
+        root.appendChild(card);
+        root.onclick = (event) => {
+          if (event.target === root) close("");
+        };
+        document.body.appendChild(root);
+      });
+    }
+
+    function patchLinuxDisplaySourceSelection() {
+      try {
+        if (!process || process.platform !== "linux") return;
+      } catch (_e) {
+        return;
+      }
+
+      const electronApi = window && window.electron ? window.electron : null;
+      if (!electronApi) return;
+      if (typeof electronApi.selectDisplayMediaSource !== "function") return;
+      if (typeof electronApi.getDesktopSources !== "function") return;
+      if (electronApi.__bfSelectDisplayMediaPatched) return;
+
+      try {
+        electronApi.__bfSelectDisplayMediaPatched = true;
+      } catch (_e) {}
+      try {
+        console.info("[BetterFluxer] Linux display source selection patch active (pass-through mode).");
+      } catch (_e) {}
+      logLinuxDisplaySources("patch-start").catch(() => {});
+    }
+
+    patchLinuxDisplayCapture();
+    patchLinuxDisplaySourceSelection();
 
     function createLogger(pluginId) {
       return {
@@ -3260,10 +3631,30 @@ ${MAIN_IPC_INJECTION_END}
 `;
 }
 
+function patchPreloadDisplaySourceSelection(sourceText) {
+  const source = String(sourceText || "");
+  const legacyPattern = /selectDisplayMediaSource:\s*\(requestId,\s*sourceId,\s*withAudio\)\s*=>\s*\{\s*import_electron\.ipcRenderer\.send\("select-display-media-source",\s*requestId,\s*sourceId,\s*withAudio\);\s*\},/m;
+  const broadPattern = /selectDisplayMediaSource:\s*(?:async\s*)?\(requestId,\s*sourceId,\s*withAudio\)\s*=>\s*\{[\s\S]*?\n\s*\},/m;
+  const pattern = legacyPattern.test(source) ? legacyPattern : broadPattern;
+  if (!pattern.test(source)) {
+    return source;
+  }
+  return source.replace(
+    pattern,
+    [
+      'selectDisplayMediaSource: (requestId, sourceId, withAudio) => {',
+      '    console.info("[BetterFluxer] selectDisplayMediaSource patch active.", { requestId, sourceId, withAudio: Boolean(withAudio) });',
+      '    import_electron.ipcRenderer.send("select-display-media-source", requestId, String(sourceId || ""), withAudio);',
+      "  },"
+    ].join("\n")
+  );
+}
+
 function patchPreload(preloadPath, backupPreloadPath, inlinePlugins, options = {}) {
-  const source = fs.readFileSync(preloadPath, "utf8");
+  const rawSource = fs.readFileSync(preloadPath, "utf8");
+  const source = patchPreloadDisplaySourceSelection(rawSource);
   if (!fs.existsSync(backupPreloadPath)) {
-    fs.writeFileSync(backupPreloadPath, source, "utf8");
+    fs.writeFileSync(backupPreloadPath, rawSource, "utf8");
   }
 
   const snippet = buildRequireSnippet(inlinePlugins, options);
@@ -3408,8 +3799,10 @@ module.exports = {
   ensureLinuxSafeLauncher,
   writeBootstrap,
   collectInlinePlugins,
+  resolveSourceDesktopMainBundle,
   buildStoreIndexSnapshot,
   patchPreload,
+  patchPackagedMainBundle,
   unpatchPreload,
   patchMainIpcHandlers,
   unpatchMainIpcHandlers
