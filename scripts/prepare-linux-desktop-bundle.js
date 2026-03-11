@@ -25,6 +25,12 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function installDesktopDependencies(desktopRoot) {
+  const packageLockPath = path.join(desktopRoot, "package-lock.json");
+  const npmArgs = fs.existsSync(packageLockPath) ? ["ci"] : ["install", "--no-fund", "--no-audit"];
+  run("npm", npmArgs, { cwd: desktopRoot });
+}
+
 function applyPatchAssets(sourceRoot, checkoutRoot) {
   const assetRoot = path.join(sourceRoot, "scripts", "assets", "fluxer_desktop");
   if (!fs.existsSync(assetRoot)) {
@@ -75,7 +81,7 @@ function main() {
   applyPatchAssets(sourceRoot, tmpRoot);
 
   const desktopRoot = path.join(tmpRoot, "fluxer_desktop");
-  run("npm", ["ci"], { cwd: desktopRoot });
+  installDesktopDependencies(desktopRoot);
   run("node", ["scripts/build.mjs"], {
     cwd: desktopRoot,
     env: {
