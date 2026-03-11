@@ -18,6 +18,7 @@ const logEl = document.getElementById("log");
 let bridgeProc = null;
 let tray = null;
 let isQuitting = false;
+let healthMonitorTimer = null;
 
 function getBundleRoot() {
   try {
@@ -44,6 +45,12 @@ function getTrayIconPath() {
 function resolveNodeExec() {
   const npmNode = String(process.env.npm_node_execpath || "").trim();
   if (npmNode && fs.existsSync(npmNode)) return npmNode;
+  const runtimeNodeCandidates = [
+    path.join(getBridgeRuntimeRoot(), "node"),
+    path.join(getBridgeRuntimeRoot(), "node.exe")
+  ];
+  const runtimeNode = runtimeNodeCandidates.find((p) => fs.existsSync(p));
+  if (runtimeNode) return runtimeNode;
   if (process.platform === "win32") {
     const localNodeCandidates = [
       path.join(path.resolve(process.cwd(), ".."), "node.exe"),
@@ -112,6 +119,26 @@ function getBundledBridgeExePath() {
   return candidates.find((p) => fs.existsSync(p)) || "";
 }
 
+function getBundledNodePath() {
+  const bundleRoot = getBundleRoot();
+  const candidates = process.platform === "win32"
+    ? [
+        path.join(bundleRoot, "node.exe"),
+        path.join(bundleRoot, "bridge-nw", "node.exe"),
+        path.join(bundleRoot, "package.nw", "node.exe"),
+        path.join(path.dirname(process.execPath), "node.exe"),
+        path.join(path.dirname(process.execPath), "package.nw", "node.exe")
+      ]
+    : [
+        path.join(bundleRoot, "node"),
+        path.join(bundleRoot, "bridge-nw", "node"),
+        path.join(bundleRoot, "package.nw", "node"),
+        path.join(path.dirname(process.execPath), "node"),
+        path.join(path.dirname(process.execPath), "package.nw", "node")
+      ];
+  return candidates.find((p) => fs.existsSync(p)) || "";
+}
+
 function materializeBridgeRuntimeFiles() {
   const sourceBridgeScript = getBundledBridgeScriptPath();
   if (!sourceBridgeScript) return "";
@@ -138,6 +165,16 @@ function materializeBridgeRuntimeFiles() {
     fs.copyFileSync(bundledEnv, path.join(runtimeBridgeEnvDir, ".env"));
   }
 
+  const bundledNode = getBundledNodePath();
+  if (bundledNode) {
+    const runtimeNodeName = process.platform === "win32" ? "node.exe" : "node";
+    const runtimeNodePath = path.join(runtimeRoot, runtimeNodeName);
+    fs.copyFileSync(bundledNode, runtimeNodePath);
+    try {
+      if (process.platform !== "win32") fs.chmodSync(runtimeNodePath, 0o755);
+    } catch (_) {}
+  }
+
   return runtimeBridgeScript;
 }
 
@@ -149,6 +186,10 @@ function log(line) {
   const ts = new Date().toLocaleTimeString();
   logEl.textContent += `[${ts}] ${line}\n`;
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+function statusIsRunning() {
+  return String(statusEl.textContent || "").toLowerCase().includes("running");
 }
 
 function httpJson(url) {
@@ -168,6 +209,51 @@ function httpJson(url) {
     });
     req.on("error", reject);
   });
+}
+
+async function isBridgeHealthy() {
+  try {
+    const health = await httpJson(`${BRIDGE_URL}/health`);
+    return Boolean(health && health.ok);
+  } catch (_) {
+    return false;
+  }
+}
+
+function stopHealthMonitor() {
+  if (healthMonitorTimer) {
+    clearInterval(healthMonitorTimer);
+    healthMonitorTimer = null;
+  }
+}
+
+function startHealthMonitor() {
+  stopHealthMonitor();
+  healthMonitorTimer = setInterval(async () => {
+    if (!bridgeProc) {
+      stopHealthMonitor();
+      return;
+    }
+    const healthy = await isBridgeHealthy();
+    if (healthy) {
+      setStatus("running");
+      return;
+    }
+    if (!statusIsRunning()) {
+      setStatus("starting...");
+    }
+  }, 3000);
+}
+
+async function waitForBridgeReady(maxWaitMs = 12000) {
+  const startAt = Date.now();
+  while (Date.now() - startAt < maxWaitMs) {
+    if (!bridgeProc) return false;
+    const healthy = await isBridgeHealthy();
+    if (healthy) return true;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  return false;
 }
 
 function startBridge() {
@@ -201,20 +287,39 @@ function startBridge() {
       windowsHide: false
     });
     setStatus("starting...");
-    bridgeProc.stdout.on("data", (chunk) => log(String(chunk).trimEnd()));
+    bridgeProc.stdout.on("data", (chunk) => {
+      const text = String(chunk || "").trimEnd();
+      log(text);
+      if (/Listening on http:\/\/127\.0\.0\.1:\d+/i.test(text)) {
+        setStatus("running");
+      }
+    });
     bridgeProc.stderr.on("data", (chunk) => log(String(chunk).trimEnd()));
     bridgeProc.on("error", (err) => {
+      stopHealthMonitor();
       log(`Bridge launch failed: ${err && err.message ? err.message : String(err)}`);
       bridgeProc = null;
       setStatus("failed");
     });
     bridgeProc.on("exit", (code) => {
+      stopHealthMonitor();
       log(`Bridge exited with code ${code}`);
       bridgeProc = null;
       setStatus("stopped");
     });
     log("Bridge process started.");
+    startHealthMonitor();
+    waitForBridgeReady().then((ready) => {
+      if (!bridgeProc) return;
+      if (ready) {
+        setStatus("running");
+        return;
+      }
+      setStatus("starting...");
+      log("Bridge did not report healthy within 12s. Use Check Health for details.");
+    });
   } catch (err) {
+    stopHealthMonitor();
     log(`Start handler error: ${err && err.message ? err.message : String(err)}`);
     setStatus("failed");
   }
@@ -227,6 +332,7 @@ function stopBridge() {
   }
   try {
     bridgeProc.kill();
+    stopHealthMonitor();
     log("Sent stop signal to bridge process.");
   } catch (err) {
     log(`Failed to stop bridge: ${err.message}`);
@@ -264,6 +370,7 @@ healthBtn.addEventListener("click", checkHealth);
 probeBtn.addEventListener("click", probeNowPlaying);
 
 window.addEventListener("beforeunload", () => {
+  stopHealthMonitor();
   if (bridgeProc) {
     try {
       bridgeProc.kill();
