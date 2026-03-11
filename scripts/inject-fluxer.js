@@ -14,6 +14,8 @@ const {
   collectInlinePlugins,
   patchPreload,
   patchMainIpcHandlers,
+  patchPackagedMainBundle,
+  resolveSourceDesktopMainBundle,
   buildStoreIndexSnapshot,
   getDefaultSplashIconDataUrl,
   DEFAULT_SPLASH_PULSE_COLOR
@@ -93,6 +95,21 @@ async function main() {
   // eslint-disable-next-line no-console
   console.log(`[BetterFluxer] Store snapshot items: ${storeIndexSnapshot.length}`);
   const mainPatchResult = patchMainIpcHandlers(paths.mainIpcHandlersPath, paths.backupMainIpcHandlersPath);
+  let packagedMainPatchResult = { changed: false, skipped: true, reason: "non-linux" };
+  if (process.platform === "linux") {
+    const sourceDesktopMainBundle = resolveSourceDesktopMainBundle(sourceRoot);
+    if (!sourceDesktopMainBundle) {
+      throw new Error(
+        "Linux prebuilt desktop bundle not found. Commit do_not_edit/fluxer/fluxer_desktop/dist/main/index.js before shipping the injector."
+      );
+    }
+    packagedMainPatchResult = await patchPackagedMainBundle(
+      paths.asarPath,
+      paths.backupAsarPath,
+      sourceDesktopMainBundle,
+      sourceRoot
+    );
+  }
   const patchResult = patchPreload(paths.preloadPath, paths.backupPreloadPath, inlinePlugins, {
     enableIpcBridge: mainPatchResult && mainPatchResult.skipped !== true,
     storeIndexSnapshot,
@@ -108,6 +125,10 @@ async function main() {
       ? "[BetterFluxer] Injection complete. Preload patched."
       : "[BetterFluxer] Injection complete. Preload already patched."
   );
+  if (packagedMainPatchResult && packagedMainPatchResult.changed) {
+    // eslint-disable-next-line no-console
+    console.log("[BetterFluxer] Packaged main bundle patched.");
+  }
   if (launcherPath) {
     // eslint-disable-next-line no-console
     console.log(`[BetterFluxer] Linux launcher: ${launcherPath}`);

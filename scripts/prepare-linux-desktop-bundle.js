@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const { spawnSync } = require("child_process");
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    shell: false,
+    ...options
+  });
+  if (result.error) {
+    throw new Error(`${command} failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+  }
+}
+
+function copyRecursive(src, dest) {
+  fs.cpSync(src, dest, { recursive: true, force: true });
+}
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function sanitizeDesktopPackageForLinux(desktopRoot) {
+  if (process.platform === "darwin") {
+    return;
+  }
+
+  const packageJsonPath = path.join(desktopRoot, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    throw new Error(`Missing desktop package.json: ${packageJsonPath}`);
+  }
+
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const darwinOnlyPackages = ["node-mac-permissions", "electron-webauthn-mac"];
+
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== "object") {
+      continue;
+    }
+    for (const packageName of darwinOnlyPackages) {
+      delete deps[packageName];
+    }
+    if (Object.keys(deps).length === 0) {
+      delete packageJson[field];
+    }
+  }
+
+  fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+
+  for (const lockfileName of ["package-lock.json", "npm-shrinkwrap.json"]) {
+    const lockfilePath = path.join(desktopRoot, lockfileName);
+    if (fs.existsSync(lockfilePath)) {
+      fs.rmSync(lockfilePath, { force: true });
+    }
+  }
+}
+
+function installDesktopDependencies(desktopRoot) {
+  const packageLockPath = path.join(desktopRoot, "package-lock.json");
+  const commonArgs = ["--no-fund", "--no-audit"];
+  if (process.platform !== "darwin") {
+    commonArgs.push("--omit=optional");
+  }
+  const npmArgs = fs.existsSync(packageLockPath) ? ["ci", ...commonArgs] : ["install", ...commonArgs];
+  run("npm", npmArgs, { cwd: desktopRoot });
+}
+
+function applyPatchAssets(sourceRoot, checkoutRoot) {
+  const assetRoot = path.join(sourceRoot, "scripts", "assets", "fluxer_desktop");
+  if (!fs.existsSync(assetRoot)) {
+    throw new Error(`Patch asset root not found: ${assetRoot}`);
+  }
+
+  const targets = [
+    {
+      src: path.join(assetRoot, "src", "main", "Window.tsx"),
+      dest: path.join(checkoutRoot, "fluxer_desktop", "src", "main", "Window.tsx")
+    },
+    {
+      src: path.join(assetRoot, "src", "main", "IpcHandlers.tsx"),
+      dest: path.join(checkoutRoot, "fluxer_desktop", "src", "main", "IpcHandlers.tsx")
+    },
+    {
+      src: path.join(assetRoot, "scripts", "build.mjs"),
+      dest: path.join(checkoutRoot, "fluxer_desktop", "scripts", "build.mjs")
+    }
+  ];
+
+  for (const target of targets) {
+    if (!fs.existsSync(target.src)) {
+      throw new Error(`Patch asset missing: ${target.src}`);
+    }
+    ensureDir(path.dirname(target.dest));
+    fs.copyFileSync(target.src, target.dest);
+  }
+}
+
+function main() {
+  const sourceRoot = path.resolve(__dirname, "..");
+  const cacheRoot = path.join(sourceRoot, "cache", "linux-desktop-bundle");
+  const tmpRoot = path.join(sourceRoot, "cache", ".tmp-fluxer-source");
+  const fluxerRepoUrl = process.env.FLUXER_SOURCE_REPO || "https://github.com/fluxerapp/fluxer.git";
+  const fluxerRepoRef = String(process.env.FLUXER_SOURCE_REF || "").trim();
+
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+  fs.rmSync(cacheRoot, { recursive: true, force: true });
+  ensureDir(path.dirname(tmpRoot));
+
+  const cloneArgs = ["clone", "--depth", "1"];
+  if (fluxerRepoRef) {
+    cloneArgs.push("--branch", fluxerRepoRef);
+  }
+  cloneArgs.push(fluxerRepoUrl, tmpRoot);
+  run("git", cloneArgs, { cwd: sourceRoot });
+  applyPatchAssets(sourceRoot, tmpRoot);
+
+  const desktopRoot = path.join(tmpRoot, "fluxer_desktop");
+  sanitizeDesktopPackageForLinux(desktopRoot);
+  installDesktopDependencies(desktopRoot);
+  run("node", ["scripts/build.mjs"], {
+    cwd: desktopRoot,
+    env: {
+      ...process.env,
+      NODE_ENV: "production"
+    }
+  });
+
+  ensureDir(path.join(cacheRoot, "dist", "main"));
+  fs.copyFileSync(path.join(desktopRoot, "dist", "main", "index.js"), path.join(cacheRoot, "dist", "main", "index.js"));
+  copyRecursive(path.join(desktopRoot, "node_modules", "@electron", "asar"), path.join(cacheRoot, "node_modules", "@electron", "asar"));
+
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+  console.log(
+    `[BetterFluxer] Linux desktop bundle prepared from ${fluxerRepoUrl}${fluxerRepoRef ? `#${fluxerRepoRef}` : ""}`
+  );
+}
+
+main();

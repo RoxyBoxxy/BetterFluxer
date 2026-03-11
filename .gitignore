@@ -16,6 +16,17 @@ cache/
 
 # Local app copy / extraction workspace
 app_do_not_edit/
+do_not_edit/*
+!do_not_edit/fluxer/
+do_not_edit/fluxer/*
+!do_not_edit/fluxer/fluxer_desktop/
+!do_not_edit/fluxer/fluxer_desktop/**
+do_not_edit/fluxer/.git/
+do_not_edit/fluxer/fluxer_desktop/node_modules/
+do_not_edit/fluxer/fluxer_desktop/dist/*
+!do_not_edit/fluxer/fluxer_desktop/dist/main/
+do_not_edit/fluxer/fluxer_desktop/dist/main/*
+!do_not_edit/fluxer/fluxer_desktop/dist/main/index.js
 MyPlugins/
 MainFluxerApp/
 # Logs
