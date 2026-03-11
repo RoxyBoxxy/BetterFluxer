@@ -25,6 +25,42 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function sanitizeDesktopPackageForLinux(desktopRoot) {
+  if (process.platform === "darwin") {
+    return;
+  }
+
+  const packageJsonPath = path.join(desktopRoot, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    throw new Error(`Missing desktop package.json: ${packageJsonPath}`);
+  }
+
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const darwinOnlyPackages = ["node-mac-permissions", "electron-webauthn-mac"];
+
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== "object") {
+      continue;
+    }
+    for (const packageName of darwinOnlyPackages) {
+      delete deps[packageName];
+    }
+    if (Object.keys(deps).length === 0) {
+      delete packageJson[field];
+    }
+  }
+
+  fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+
+  for (const lockfileName of ["package-lock.json", "npm-shrinkwrap.json"]) {
+    const lockfilePath = path.join(desktopRoot, lockfileName);
+    if (fs.existsSync(lockfilePath)) {
+      fs.rmSync(lockfilePath, { force: true });
+    }
+  }
+}
+
 function installDesktopDependencies(desktopRoot) {
   const packageLockPath = path.join(desktopRoot, "package-lock.json");
   const commonArgs = ["--no-fund", "--no-audit"];
@@ -85,6 +121,7 @@ function main() {
   applyPatchAssets(sourceRoot, tmpRoot);
 
   const desktopRoot = path.join(tmpRoot, "fluxer_desktop");
+  sanitizeDesktopPackageForLinux(desktopRoot);
   installDesktopDependencies(desktopRoot);
   run("node", ["scripts/build.mjs"], {
     cwd: desktopRoot,
