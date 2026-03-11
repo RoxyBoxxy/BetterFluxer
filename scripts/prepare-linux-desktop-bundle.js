@@ -60,13 +60,18 @@ function main() {
   const cacheRoot = path.join(sourceRoot, "cache", "linux-desktop-bundle");
   const tmpRoot = path.join(sourceRoot, "cache", ".tmp-fluxer-source");
   const fluxerRepoUrl = process.env.FLUXER_SOURCE_REPO || "https://github.com/fluxerapp/fluxer.git";
-  const fluxerRepoRef = process.env.FLUXER_SOURCE_REF || "main";
+  const fluxerRepoRef = String(process.env.FLUXER_SOURCE_REF || "").trim();
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });
   fs.rmSync(cacheRoot, { recursive: true, force: true });
   ensureDir(path.dirname(tmpRoot));
 
-  run("git", ["clone", "--depth", "1", "--branch", fluxerRepoRef, fluxerRepoUrl, tmpRoot], { cwd: sourceRoot });
+  const cloneArgs = ["clone", "--depth", "1"];
+  if (fluxerRepoRef) {
+    cloneArgs.push("--branch", fluxerRepoRef);
+  }
+  cloneArgs.push(fluxerRepoUrl, tmpRoot);
+  run("git", cloneArgs, { cwd: sourceRoot });
   applyPatchAssets(sourceRoot, tmpRoot);
 
   const desktopRoot = path.join(tmpRoot, "fluxer_desktop");
@@ -84,7 +89,9 @@ function main() {
   copyRecursive(path.join(desktopRoot, "node_modules", "@electron", "asar"), path.join(cacheRoot, "node_modules", "@electron", "asar"));
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });
-  console.log(`[BetterFluxer] Linux desktop bundle prepared from ${fluxerRepoUrl}#${fluxerRepoRef}`);
+  console.log(
+    `[BetterFluxer] Linux desktop bundle prepared from ${fluxerRepoUrl}${fluxerRepoRef ? `#${fluxerRepoRef}` : ""}`
+  );
 }
 
 main();
