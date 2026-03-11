@@ -27,7 +27,11 @@ function ensureDir(dir) {
 
 function installDesktopDependencies(desktopRoot) {
   const packageLockPath = path.join(desktopRoot, "package-lock.json");
-  const npmArgs = fs.existsSync(packageLockPath) ? ["ci"] : ["install", "--no-fund", "--no-audit"];
+  const commonArgs = ["--no-fund", "--no-audit"];
+  if (process.platform !== "darwin") {
+    commonArgs.push("--omit=optional");
+  }
+  const npmArgs = fs.existsSync(packageLockPath) ? ["ci", ...commonArgs] : ["install", ...commonArgs];
   run("npm", npmArgs, { cwd: desktopRoot });
 }
 
