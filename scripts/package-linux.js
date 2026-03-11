@@ -105,6 +105,28 @@ function buildLinuxDesktopPatchBundle(root) {
   });
 }
 
+function ensureLocalLinuxDesktopBundle(root) {
+  const bundleRoot = path.join(root, "cache", "linux-desktop-bundle");
+  const bundleMainPath = path.join(bundleRoot, "dist", "main", "index.js");
+  const bundleAsarPath = path.join(bundleRoot, "node_modules", "@electron", "asar", "lib", "asar.js");
+  if (fs.existsSync(bundleMainPath) && fs.existsSync(bundleAsarPath)) {
+    return bundleRoot;
+  }
+
+  buildLinuxDesktopPatchBundle(root);
+  const asarSource = resolveAsarModuleSource(root);
+  const desktopMainSource = path.join(root, "do_not_edit", "fluxer", "fluxer_desktop", "dist", "main", "index.js");
+  if (!fs.existsSync(desktopMainSource)) {
+    throw new Error(`Missing Linux desktop main bundle: ${desktopMainSource}`);
+  }
+
+  fs.rmSync(bundleRoot, { recursive: true, force: true });
+  fs.mkdirSync(path.join(bundleRoot, "dist", "main"), { recursive: true });
+  fs.copyFileSync(desktopMainSource, path.join(bundleRoot, "dist", "main", "index.js"));
+  copyRecursive(asarSource, path.join(bundleRoot, "node_modules", "@electron", "asar"));
+  return bundleRoot;
+}
+
 function resolveAsarModuleSource(root) {
   const candidates = [
     path.join(root, "node_modules", "@electron", "asar"),
@@ -119,24 +141,15 @@ function resolveAsarModuleSource(root) {
 }
 
 function copyLinuxInjectorPatchAssets(root, stageRoot) {
-  const desktopMainSource = path.join(root, "do_not_edit", "fluxer", "fluxer_desktop", "dist", "main", "index.js");
-  if (!fs.existsSync(desktopMainSource)) {
-    throw new Error(`Missing Linux desktop main bundle: ${desktopMainSource}`);
-  }
+  const bundleRoot = ensureLocalLinuxDesktopBundle(root);
+  const desktopMainSource = path.join(bundleRoot, "dist", "main", "index.js");
 
-  const stagedDesktopMain = path.join(
-    stageRoot,
-    "do_not_edit",
-    "fluxer",
-    "fluxer_desktop",
-    "dist",
-    "main"
-  );
+  const stagedDesktopMain = path.join(stageRoot, "vendor", "linux-desktop-bundle", "dist", "main");
   fs.mkdirSync(stagedDesktopMain, { recursive: true });
   fs.copyFileSync(desktopMainSource, path.join(stagedDesktopMain, "index.js"));
 
-  const asarSource = resolveAsarModuleSource(root);
-  const stagedAsarRoot = path.join(stageRoot, "node_modules", "@electron", "asar");
+  const asarSource = path.join(bundleRoot, "node_modules", "@electron", "asar");
+  const stagedAsarRoot = path.join(stageRoot, "vendor", "linux-desktop-bundle", "node_modules", "@electron", "asar");
   copyRecursive(asarSource, stagedAsarRoot);
 }
 
@@ -144,7 +157,6 @@ function createStage(root, outDir) {
   const stageRoot = path.join(root, ".tmp-nw-stage-linux");
   ensureCleanDir(stageRoot);
 
-  buildLinuxDesktopPatchBundle(root);
   copyRecursive(path.join(root, "nw"), path.join(stageRoot, "nw"));
   copyRecursive(path.join(root, "scripts"), path.join(stageRoot, "scripts"));
   copyPluginsIntoStage(root, stageRoot);

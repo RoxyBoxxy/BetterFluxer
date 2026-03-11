@@ -163,12 +163,23 @@ function resolvePaths(appPath) {
 }
 
 function resolveSourceDesktopMainBundle(sourceRoot) {
-  const candidate = path.join(sourceRoot, "do_not_edit", "fluxer", "fluxer_desktop", "dist", "main", "index.js");
-  return fs.existsSync(candidate) ? candidate : null;
+  const candidates = [
+    path.join(sourceRoot, "vendor", "linux-desktop-bundle", "dist", "main", "index.js"),
+    path.join(sourceRoot, "cache", "linux-desktop-bundle", "dist", "main", "index.js"),
+    path.join(sourceRoot, "do_not_edit", "fluxer", "fluxer_desktop", "dist", "main", "index.js")
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function resolveAsarModulePath(sourceRoot) {
   const candidates = [
+    path.join(sourceRoot, "vendor", "linux-desktop-bundle", "node_modules", "@electron", "asar", "lib", "asar.js"),
+    path.join(sourceRoot, "cache", "linux-desktop-bundle", "node_modules", "@electron", "asar", "lib", "asar.js"),
     path.join(sourceRoot, "node_modules", "@electron", "asar", "lib", "asar.js"),
     path.join(
       sourceRoot,

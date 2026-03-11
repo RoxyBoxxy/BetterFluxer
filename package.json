@@ -19,6 +19,7 @@
     "dist:win:onefile": "node scripts/package-win-onefile.js",
     "dist:linux": "node scripts/package-linux.js",
     "dist:bridge:linux": "node scripts/package-bridge-linux.js",
+    "prepare:linux-desktop-bundle": "node scripts/prepare-linux-desktop-bundle.js",
     "dist:win:builder": "node scripts/package-win.js",
     "dist:win:nsis": "node scripts/package-win.js",
     "dist:win:portable": "node scripts/package-win.js",
