@@ -12,6 +12,8 @@ const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const healthBtn = document.getElementById("healthBtn");
 const probeBtn = document.getElementById("probeBtn");
+const nerdModeToggleEl = document.getElementById("nerdModeToggle");
+const updateIntervalInputEl = document.getElementById("updateIntervalInput");
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 
@@ -19,6 +21,52 @@ let bridgeProc = null;
 let tray = null;
 let isQuitting = false;
 let healthMonitorTimer = null;
+const SETTINGS_FILE = path.join(getAppDataHome(), APP_NAME, "data", "bridge-settings.json");
+const DEFAULT_UPDATE_INTERVAL_MS = 10000;
+
+function normalizeUpdateIntervalMs(value) {
+  const n = Number.parseInt(String(value || ""), 10);
+  if (!Number.isFinite(n)) return DEFAULT_UPDATE_INTERVAL_MS;
+  return Math.max(1000, Math.min(60000, Math.round(n)));
+}
+
+function ensureBridgeDataDir() {
+  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+}
+
+function loadBridgeSettings() {
+  try {
+    if (!fs.existsSync(SETTINGS_FILE)) {
+      return { nerdModeEnabled: false, updateIntervalMs: DEFAULT_UPDATE_INTERVAL_MS };
+    }
+    const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+    return {
+      nerdModeEnabled: Boolean(parsed && parsed.nerdModeEnabled),
+      updateIntervalMs: normalizeUpdateIntervalMs(parsed && parsed.updateIntervalMs)
+    };
+  } catch (_) {
+    return { nerdModeEnabled: false, updateIntervalMs: DEFAULT_UPDATE_INTERVAL_MS };
+  }
+}
+
+function saveBridgeSettings(nextSettings) {
+  ensureBridgeDataDir();
+  const payload = {
+    nerdModeEnabled: Boolean(nextSettings && nextSettings.nerdModeEnabled),
+    updateIntervalMs: normalizeUpdateIntervalMs(nextSettings && nextSettings.updateIntervalMs)
+  };
+  fs.writeFileSync(SETTINGS_FILE, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return payload;
+}
+
+function applyBridgeSettingsToUi(settings) {
+  if (nerdModeToggleEl) {
+    nerdModeToggleEl.checked = Boolean(settings && settings.nerdModeEnabled);
+  }
+  if (updateIntervalInputEl) {
+    updateIntervalInputEl.value = String(normalizeUpdateIntervalMs(settings && settings.updateIntervalMs));
+  }
+}
 
 function getBundleRoot() {
   try {
@@ -343,6 +391,12 @@ async function checkHealth() {
   try {
     const health = await httpJson(`${BRIDGE_URL}/health`);
     setStatus(health && health.ok ? "running" : "degraded");
+    if (health && (typeof health.nerdModeEnabled === "boolean" || health.updateIntervalMs != null)) {
+      applyBridgeSettingsToUi({
+        nerdModeEnabled: health.nerdModeEnabled,
+        updateIntervalMs: health.updateIntervalMs
+      });
+    }
     log(`Health: ${JSON.stringify(health)}`);
   } catch (err) {
     setStatus("offline");
@@ -368,6 +422,25 @@ startBtn.addEventListener("click", startBridge);
 stopBtn.addEventListener("click", stopBridge);
 healthBtn.addEventListener("click", checkHealth);
 probeBtn.addEventListener("click", probeNowPlaying);
+if (nerdModeToggleEl) {
+  nerdModeToggleEl.addEventListener("change", () => {
+    const settings = saveBridgeSettings({
+      nerdModeEnabled: Boolean(nerdModeToggleEl.checked),
+      updateIntervalMs: updateIntervalInputEl ? updateIntervalInputEl.value : DEFAULT_UPDATE_INTERVAL_MS
+    });
+    log(`Nerd Mode ${settings.nerdModeEnabled ? "enabled" : "disabled"}.`);
+  });
+}
+if (updateIntervalInputEl) {
+  updateIntervalInputEl.addEventListener("change", () => {
+    const settings = saveBridgeSettings({
+      nerdModeEnabled: nerdModeToggleEl ? Boolean(nerdModeToggleEl.checked) : false,
+      updateIntervalMs: updateIntervalInputEl.value
+    });
+    applyBridgeSettingsToUi(settings);
+    log(`Update interval set to ${settings.updateIntervalMs}ms.`);
+  });
+}
 
 window.addEventListener("beforeunload", () => {
   stopHealthMonitor();
@@ -463,5 +536,6 @@ function setupTrayBehavior() {
 }
 
 setStatus("idle");
+applyBridgeSettingsToUi(loadBridgeSettings());
 log("Bridge NW app ready.");
 setupTrayBehavior();
