@@ -31,6 +31,7 @@ const BRIDGE_BASE_DIR = getBridgeBaseDir();
 const DATA_DIR = path.join(BRIDGE_BASE_DIR, "data");
 const TOKEN_FILE = path.join(DATA_DIR, "bridge-token.txt");
 const CACHE_FILE = path.join(DATA_DIR, "bridge-cache.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "bridge-settings.json");
 
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.BF_BRIDGE_PORT || "21864", 10);
@@ -43,6 +44,7 @@ const BRIDGE_VERSION = BRIDGE_VERSION_BY_OS[process.platform] || "2026-03-10-rpc
 const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.BF_BRIDGE_TIMEOUT_MS || "12000", 10);
 const DEFAULT_TTL_SECONDS = Number.parseInt(process.env.BF_BRIDGE_DEFAULT_TTL || "120", 10);
 const MAX_TTL_SECONDS = Number.parseInt(process.env.BF_BRIDGE_MAX_TTL || "1800", 10);
+const DEFAULT_UPDATE_INTERVAL_MS = Number.parseInt(process.env.BF_BRIDGE_UPDATE_INTERVAL_MS || "10000", 10);
 const WINDOWS_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const WINDOWS_RUN_VALUE = "BetterFluxerBridge";
 const LINUX_BIN_DIR = path.join(os.homedir(), ".local", "bin");
@@ -116,6 +118,12 @@ function normalizeTtlSeconds(input) {
   return Math.max(1, Math.min(MAX_TTL_SECONDS, n));
 }
 
+function normalizeUpdateIntervalMs(input) {
+  const n = Number.parseInt(String(input || ""), 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_UPDATE_INTERVAL_MS;
+  return Math.max(1000, Math.min(60000, Math.round(n)));
+}
+
 function readJsonBody(req) {
   return new Promise((resolve) => {
     let raw = "";
@@ -151,6 +159,21 @@ function loadCache() {
 function saveCache(cache) {
   ensureDataDir();
   fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2), "utf8");
+}
+
+function loadBridgeSettings() {
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    return { nerdModeEnabled: false, updateIntervalMs: DEFAULT_UPDATE_INTERVAL_MS };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+    return {
+      nerdModeEnabled: Boolean(parsed && parsed.nerdModeEnabled),
+      updateIntervalMs: normalizeUpdateIntervalMs(parsed && parsed.updateIntervalMs)
+    };
+  } catch (_) {
+    return { nerdModeEnabled: false, updateIntervalMs: DEFAULT_UPDATE_INTERVAL_MS };
+  }
 }
 
 function parseArgv(argv) {
@@ -390,6 +413,41 @@ function normalizeNowPlayingPayload(payload, source) {
     details: String(p.details || "").trim(),
     state: String(p.state || "").trim()
   };
+}
+
+function formatDurationShort(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = sec % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function buildNerdModeNowPlaying() {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = Math.max(0, totalMem - freeMem);
+  const memPercent = totalMem > 0 ? Math.round((usedMem / totalMem) * 100) : 0;
+  const loadAvg = os.loadavg();
+  const cpuCount = Array.isArray(os.cpus()) ? os.cpus().length : 0;
+  const hostname = String(os.hostname() || "").trim();
+  const details = `CPU ${Number(loadAvg[0] || 0).toFixed(2)} | RAM ${memPercent}%`;
+  const state = `${hostname || process.platform} | up ${formatDurationShort(os.uptime())}`;
+  return normalizeNowPlayingPayload(
+    {
+      source: "nerd-mode",
+      kind: "system",
+      title: "Nerd Mode",
+      details,
+      state,
+      appId: hostname || process.platform,
+      playbackStatus: "idle",
+      name: `System Stats (${cpuCount} cores)`
+    },
+    "nerd-mode"
+  );
 }
 
 function makeRpcFrame(op, payloadObject) {
@@ -809,6 +867,7 @@ async function queryMacMedia() {
 
 async function queryUniversalNowPlaying(state) {
   const now = Date.now();
+  let rpcFallback = null;
   if (state && state.lastRpcActivity && now - Number(state.lastRpcActivityAt || 0) < 180000) {
     const raw = state.lastRpcActivity.raw && typeof state.lastRpcActivity.raw === "object" ? state.lastRpcActivity.raw : {};
     const base = state.lastRpcActivity.normalized && typeof state.lastRpcActivity.normalized === "object"
@@ -823,31 +882,49 @@ async function queryUniversalNowPlaying(state) {
     if (startMs != null && endMs != null && endMs > startMs) {
       base.durationMs = endMs - startMs;
     }
-    return base;
+    if (base && base.ok && base.hasSession) {
+      return base;
+    }
+    rpcFallback = {
+      ok: true,
+      hasSession: false,
+      source: String(base.source || "discord-rpc-pipe"),
+      error: String(base.error || "No active RPC session")
+    };
   }
 
+  let fallback = null;
   if (process.platform === "win32") {
     const tuna = await queryTunaNowPlaying(state);
     if (tuna && tuna.ok && tuna.hasSession) return tuna;
-    return tuna && tuna.ok
+    fallback = tuna && tuna.ok
       ? tuna
       : { ok: false, hasSession: false, source: "windows-now-playing", error: "No active RPC or Tuna session" };
-  }
-  if (process.platform === "linux") {
+  } else if (process.platform === "linux") {
     const tuna = await queryTunaNowPlaying(state);
     if (tuna && tuna.ok && tuna.hasSession) return tuna;
-    return tuna && tuna.ok
+    fallback = tuna && tuna.ok
       ? tuna
       : { ok: false, hasSession: false, source: "linux-now-playing", error: "No active Tuna session" };
-  }
-  if (process.platform === "darwin") {
+  } else if (process.platform === "darwin") {
     const mac = await queryMacMedia();
     if (mac.ok && mac.hasSession) return mac;
     const tuna = await queryTunaNowPlaying(state);
     if (tuna && tuna.ok && tuna.hasSession) return tuna;
-    return mac.ok ? mac : tuna.ok ? tuna : mac;
+    fallback = mac.ok ? mac : tuna.ok ? tuna : mac;
+  } else {
+    fallback = { ok: false, error: `Unsupported platform: ${process.platform}` };
   }
-  return { ok: false, error: `Unsupported platform: ${process.platform}` };
+
+  const preferredFallback =
+    fallback && fallback.hasSession
+      ? fallback
+      : rpcFallback || fallback;
+
+  if (loadBridgeSettings().nerdModeEnabled && (!preferredFallback || !preferredFallback.hasSession)) {
+    return buildNerdModeNowPlaying();
+  }
+  return preferredFallback;
 }
 
 function formatNowPlayingForLog(np) {
@@ -988,6 +1065,7 @@ async function main() {
 
     const url = new URL(req.url || "/", `http://${HOST}:${PORT}`);
     if (url.pathname === "/health") {
+      const settings = loadBridgeSettings();
       return sendJson(
         res,
         200,
@@ -999,6 +1077,8 @@ async function main() {
           rpcPipesListening: (bridgeState.rpcServers || []).length,
           rpcPipeErrors: (bridgeState.rpcBindErrors || []).length,
           tunaPath: bridgeState.tunaPath,
+          nerdModeEnabled: Boolean(settings.nerdModeEnabled),
+          updateIntervalMs: settings.updateIntervalMs,
           allowlist,
           uptimeSec: Math.floor(process.uptime())
         },

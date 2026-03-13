@@ -11,6 +11,10 @@
     button { background: #1f2430; color: #e7e9ee; border: 1px solid #2e3544; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
     button:hover { background: #2a3142; }
     .status { background: #121622; border: 1px solid #2e3544; border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+    .toggleRow { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 12px; background: #121622; border: 1px solid #2e3544; border-radius: 8px; }
+    .toggleRow label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .toggleHint { color: #9aa4b4; font-size: 12px; }
+    .settingInput { background: #0b0d14; color: #e7e9ee; border: 1px solid #2e3544; border-radius: 6px; padding: 6px 8px; width: 120px; }
     pre { background: #0b0d14; border: 1px solid #2e3544; border-radius: 8px; padding: 12px; height: 460px; overflow: auto; white-space: pre-wrap; }
     code { color: #8ad1ff; }
   </style>
@@ -23,6 +27,18 @@
       <button id="stopBtn">Stop Bridge</button>
       <button id="healthBtn">Check Health</button>
       <button id="probeBtn">Probe Now Playing</button>
+    </div>
+    <div class="toggleRow">
+      <label>
+        <input type="checkbox" id="nerdModeToggle" />
+        <span>Enable Nerd Mode</span>
+      </label>
+      <span class="toggleHint">When nothing is playing, publish system stats instead.</span>
+    </div>
+    <div class="toggleRow">
+      <label for="updateIntervalInput">Update interval (ms)</label>
+      <input class="settingInput" type="number" id="updateIntervalInput" min="1000" max="60000" step="1000" />
+      <span class="toggleHint">Suggested poll interval for status sync.</span>
     </div>
     <div class="status" id="status">Status: idle</div>
     <pre id="log"></pre>

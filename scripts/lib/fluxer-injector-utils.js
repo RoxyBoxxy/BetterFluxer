@@ -1659,6 +1659,59 @@ try {
       }
     }
 
+    class MembersClass extends BaseDOMClass {
+      getMemberItems() {
+        const nodes = this.queryAll(
+          "span[class*='MemberListItem'][class*='name'], [data-user-id] span[class*='name'], [data-user-id]"
+        );
+        return nodes
+          .map((node) => {
+            const carrier = node.closest && typeof node.closest === "function" ? node.closest("[data-user-id]") : null;
+            const userId = String((carrier && carrier.getAttribute && carrier.getAttribute("data-user-id")) || (node.getAttribute && node.getAttribute("data-user-id")) || "");
+            return {
+              id: userId,
+              label: this.text(node),
+              element: node
+            };
+          })
+          .filter((item) => item.label || item.id);
+      }
+
+      clickMemberByName(name) {
+        const needle = String(name || "").trim().toLowerCase();
+        if (!needle) return false;
+        const item = this.getMemberItems().find((it) => String(it.label || "").toLowerCase().includes(needle));
+        if (!item || !item.element || typeof item.element.click !== "function") return false;
+        item.element.click();
+        return true;
+      }
+
+      getVisibleMemberIds() {
+        const out = [];
+        const seen = new Set();
+        for (const item of this.getMemberItems()) {
+          const id = String(item.id || "");
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.push(id);
+        }
+        return out;
+      }
+
+      getMemberById(userId) {
+        const id = String(userId || "").trim();
+        if (!id) return null;
+        return this.getMemberItems().find((it) => String(it.id) === id) || null;
+      }
+
+      clickMemberById(userId) {
+        const item = this.getMemberById(userId);
+        if (!item || !item.element || typeof item.element.click !== "function") return false;
+        item.element.click();
+        return true;
+      }
+    }
+
     function createUIClasses() {
       const settingsSidebar = new SettingsSidebarClass();
       const userProfile = new UserProfileClass(settingsSidebar);
@@ -1669,7 +1722,8 @@ try {
         userProfile,
         messages: new MessagesClass(),
         guildList: new GuildListClass(),
-        channels: new ChannelsClass()
+        channels: new ChannelsClass(),
+        members: new MembersClass()
       };
     }
 
@@ -1679,7 +1733,8 @@ try {
       UserProfileClass,
       MessagesClass,
       GuildListClass,
-      ChannelsClass
+      ChannelsClass,
+      MembersClass
     };
     runtime.uiClasses = createUIClasses();
 
@@ -3087,6 +3142,13 @@ try {
             channels: {
               getChannelItems: () => runtime.uiClasses.channels.getChannelItems(),
               clickChannelByName: (name) => runtime.uiClasses.channels.clickChannelByName(name)
+            },
+            members: {
+              getMemberItems: () => runtime.uiClasses.members.getMemberItems(),
+              getVisibleMemberIds: () => runtime.uiClasses.members.getVisibleMemberIds(),
+              getMemberById: (userId) => runtime.uiClasses.members.getMemberById(userId),
+              clickMemberById: (userId) => runtime.uiClasses.members.clickMemberById(userId),
+              clickMemberByName: (name) => runtime.uiClasses.members.clickMemberByName(name)
             },
             settingsSidebar: {
               getItems: () => runtime.uiClasses.settingsSidebar.getItems(),
