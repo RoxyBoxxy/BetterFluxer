@@ -31,13 +31,20 @@ const BRIDGE_BASE_DIR = getBridgeBaseDir();
 const DATA_DIR = path.join(BRIDGE_BASE_DIR, "data");
 const TOKEN_FILE = path.join(DATA_DIR, "bridge-token.txt");
 const CACHE_FILE = path.join(DATA_DIR, "bridge-cache.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "bridge-settings.json");
 
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.BF_BRIDGE_PORT || "21864", 10);
-const BRIDGE_VERSION = "2026-03-07-rpc-tuna";
+const BRIDGE_VERSION_BY_OS = {
+  win32: "2026-03-10-rpc-win",
+  linux: "2026-03-10-rpc-linux",
+  darwin: "2026-03-10-rpc-mac"
+};
+const BRIDGE_VERSION = BRIDGE_VERSION_BY_OS[process.platform] || "2026-03-10-rpc";
 const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.BF_BRIDGE_TIMEOUT_MS || "12000", 10);
 const DEFAULT_TTL_SECONDS = Number.parseInt(process.env.BF_BRIDGE_DEFAULT_TTL || "120", 10);
 const MAX_TTL_SECONDS = Number.parseInt(process.env.BF_BRIDGE_MAX_TTL || "1800", 10);
+const DEFAULT_UPDATE_INTERVAL_MS = Number.parseInt(process.env.BF_BRIDGE_UPDATE_INTERVAL_MS || "10000", 10);
 const WINDOWS_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const WINDOWS_RUN_VALUE = "BetterFluxerBridge";
 const LINUX_BIN_DIR = path.join(os.homedir(), ".local", "bin");
@@ -111,6 +118,12 @@ function normalizeTtlSeconds(input) {
   return Math.max(1, Math.min(MAX_TTL_SECONDS, n));
 }
 
+function normalizeUpdateIntervalMs(input) {
+  const n = Number.parseInt(String(input || ""), 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_UPDATE_INTERVAL_MS;
+  return Math.max(1000, Math.min(60000, Math.round(n)));
+}
+
 function readJsonBody(req) {
   return new Promise((resolve) => {
     let raw = "";
@@ -146,6 +159,21 @@ function loadCache() {
 function saveCache(cache) {
   ensureDataDir();
   fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2), "utf8");
+}
+
+function loadBridgeSettings() {
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    return { nerdModeEnabled: false, updateIntervalMs: DEFAULT_UPDATE_INTERVAL_MS };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+    return {
+      nerdModeEnabled: Boolean(parsed && parsed.nerdModeEnabled),
+      updateIntervalMs: normalizeUpdateIntervalMs(parsed && parsed.updateIntervalMs)
+    };
+  } catch (_) {
+    return { nerdModeEnabled: false, updateIntervalMs: DEFAULT_UPDATE_INTERVAL_MS };
+  }
 }
 
 function parseArgv(argv) {
@@ -387,6 +415,41 @@ function normalizeNowPlayingPayload(payload, source) {
   };
 }
 
+function formatDurationShort(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = sec % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function buildNerdModeNowPlaying() {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = Math.max(0, totalMem - freeMem);
+  const memPercent = totalMem > 0 ? Math.round((usedMem / totalMem) * 100) : 0;
+  const loadAvg = os.loadavg();
+  const cpuCount = Array.isArray(os.cpus()) ? os.cpus().length : 0;
+  const hostname = String(os.hostname() || "").trim();
+  const details = `CPU ${Number(loadAvg[0] || 0).toFixed(2)} | RAM ${memPercent}%`;
+  const state = `${hostname || process.platform} | up ${formatDurationShort(os.uptime())}`;
+  return normalizeNowPlayingPayload(
+    {
+      source: "nerd-mode",
+      kind: "system",
+      title: "Nerd Mode",
+      details,
+      state,
+      appId: hostname || process.platform,
+      playbackStatus: "idle",
+      name: `System Stats (${cpuCount} cores)`
+    },
+    "nerd-mode"
+  );
+}
+
 function makeRpcFrame(op, payloadObject) {
   const payload = Buffer.from(JSON.stringify(payloadObject || {}), "utf8");
   const frame = Buffer.allocUnsafe(8 + payload.length);
@@ -416,6 +479,28 @@ function decodeRpcFrames(buffer, onFrame) {
     cursor += 8 + len;
   }
   return buffer.slice(cursor);
+}
+
+function isIgnorableSocketWriteError(error) {
+  const code = String((error && error.code) || "");
+  return code === "EPIPE" || code === "ECONNRESET" || code === "ERR_STREAM_DESTROYED";
+}
+
+function safeSocketWrite(socket, frame) {
+  if (!socket || socket.destroyed) return false;
+  try {
+    socket.write(frame, (error) => {
+      if (error && !isIgnorableSocketWriteError(error)) {
+        console.warn("[BetterFluxer Bridge] RPC socket write error:", String(error.message || error));
+      }
+    });
+    return true;
+  } catch (error) {
+    if (!isIgnorableSocketWriteError(error)) {
+      console.warn("[BetterFluxer Bridge] RPC socket write failed:", String((error && error.message) || error || "unknown"));
+    }
+    return false;
+  }
 }
 
 function sendJson(res, status, payload, origin) {
@@ -553,7 +638,7 @@ function handleDiscordRpcMessage(message, state, socket) {
     state.lastRpcActivityAt = Date.now();
     console.log(`[BetterFluxer Bridge] RPC activity captured: ${formatNowPlayingForLog(payload)}`);
     if (socket && !socket.destroyed) {
-      socket.write(makeRpcFrame(1, { cmd: "SET_ACTIVITY", data: {}, evt: null, nonce }));
+      safeSocketWrite(socket, makeRpcFrame(1, { cmd: "SET_ACTIVITY", data: {}, evt: null, nonce }));
     }
     return;
   }
@@ -562,32 +647,116 @@ function handleDiscordRpcMessage(message, state, socket) {
     state.lastRpcActivity = null;
     state.lastRpcActivityAt = Date.now();
     if (socket && !socket.destroyed) {
-      socket.write(makeRpcFrame(1, { cmd: "CLEAR_ACTIVITY", data: {}, evt: null, nonce }));
+      safeSocketWrite(socket, makeRpcFrame(1, { cmd: "CLEAR_ACTIVITY", data: {}, evt: null, nonce }));
     }
     return;
   }
 
   if (socket && !socket.destroyed && nonce != null && cmd) {
-    socket.write(makeRpcFrame(1, { cmd, data: {}, evt: null, nonce }));
+    safeSocketWrite(socket, makeRpcFrame(1, { cmd, data: {}, evt: null, nonce }));
   }
 }
 
+function getLinuxDiscordIpcDirs() {
+  const dirs = [];
+  const pushDir = (value) => {
+    const v = String(value || "").trim();
+    if (!v) return;
+    if (!dirs.includes(v)) dirs.push(v);
+  };
+
+  pushDir(process.env.BF_RPC_DIR);
+  pushDir(process.env.XDG_RUNTIME_DIR);
+  if (Number.isFinite(Number(process.getuid && process.getuid()))) {
+    pushDir(path.join("/run/user", String(process.getuid())));
+  }
+  pushDir("/tmp");
+  pushDir("/var/tmp");
+  pushDir("/dev/shm");
+
+  const expanded = [];
+  const suffixes = [
+    "",
+    "app/com.discordapp.Discord",
+    "app/com.discordapp.DiscordCanary",
+    "app/com.discordapp.DiscordPTB",
+    "app/com.vesktop.Vesktop",
+    "app/dev.vencord.Vesktop",
+    "snap.discord"
+  ];
+  for (const dir of dirs) {
+    for (const suffix of suffixes) {
+      const full = suffix ? path.join(dir, suffix) : dir;
+      if (!expanded.includes(full)) expanded.push(full);
+    }
+  }
+  return expanded;
+}
+
+function getDiscordRpcEndpoints() {
+  if (process.platform === "win32") {
+    return Array.from({ length: 10 }, (_, i) => `\\\\.\\pipe\\discord-ipc-${i}`);
+  }
+  if (process.platform === "linux") {
+    const out = [];
+    for (const base of getLinuxDiscordIpcDirs()) {
+      for (let i = 0; i < 10; i += 1) {
+        out.push(path.join(base, `discord-ipc-${i}`));
+      }
+    }
+    return out;
+  }
+  return [];
+}
+
+function ensureLinuxRpcSocketPath(socketPath) {
+  const dir = path.dirname(socketPath);
+  if (!fs.existsSync(dir)) {
+    return false;
+  }
+  if (!fs.existsSync(socketPath)) return true;
+  try {
+    const stat = fs.lstatSync(socketPath);
+    if (stat.isSocket()) {
+      fs.unlinkSync(socketPath);
+      return true;
+    }
+  } catch (_) {}
+  return !fs.existsSync(socketPath);
+}
+
 function startDiscordRpcCapture(state) {
-  if (process.platform !== "win32") return;
+  if (process.platform !== "win32" && process.platform !== "linux") return;
   if (state.rpcServers && state.rpcServers.length) return;
   state.rpcServers = [];
   state.rpcBindErrors = [];
 
-  for (let i = 0; i < 10; i += 1) {
-    const pipeName = `\\\\.\\pipe\\discord-ipc-${i}`;
+  const endpoints = getDiscordRpcEndpoints();
+  for (const endpoint of endpoints) {
+    if (process.platform === "linux") {
+      try {
+        const ready = ensureLinuxRpcSocketPath(endpoint);
+        if (!ready) continue;
+      } catch (error) {
+        state.rpcBindErrors.push({ pipe: endpoint, error: String((error && error.message) || error || "unknown") });
+        continue;
+      }
+    }
+
     const server = net.createServer((socket) => {
       let buf = Buffer.alloc(0);
+      socket.on("error", (error) => {
+        if (!isIgnorableSocketWriteError(error)) {
+          console.warn("[BetterFluxer Bridge] RPC socket error:", String((error && error.message) || error || "unknown"));
+        }
+      });
       socket.on("data", (chunk) => {
         try {
           buf = Buffer.concat([buf, Buffer.from(chunk)]);
           buf = decodeRpcFrames(buf, (op, msg) => {
             if (op === 0) {
-              socket.write(
+              safeSocketWrite(
+                socket,
                 makeRpcFrame(1, {
                   cmd: "DISPATCH",
                   evt: "READY",
@@ -612,50 +781,21 @@ function startDiscordRpcCapture(state) {
     });
 
     server.on("error", (error) => {
-      state.rpcBindErrors.push({ pipe: pipeName, error: String((error && error.message) || error || "unknown") });
+      state.rpcBindErrors.push({ pipe: endpoint, error: String((error && error.message) || error || "unknown") });
     });
 
     try {
-      server.listen(pipeName, () => {
-        state.rpcServers.push({ pipe: pipeName, server });
+      server.listen(endpoint, () => {
+        if (process.platform === "linux") {
+          try {
+            fs.chmodSync(endpoint, 0o600);
+          } catch (_) {}
+        }
+        state.rpcServers.push({ pipe: endpoint, server });
       });
     } catch (error) {
-      state.rpcBindErrors.push({ pipe: pipeName, error: String((error && error.message) || error || "unknown") });
+      state.rpcBindErrors.push({ pipe: endpoint, error: String((error && error.message) || error || "unknown") });
     }
-  }
-}
-
-async function queryLinuxMedia() {
-  if (process.platform !== "linux") {
-    return { ok: false, error: "Linux only", platform: process.platform };
-  }
-
-  const format = "{{title}}\t{{artist}}\t{{album}}\t{{playerName}}\t{{status}}";
-  try {
-    const result = await runCommand("playerctl", ["metadata", "--format", format], 4000);
-    if (result.code !== 0) {
-      const errText = (result.stderr || result.stdout || "").trim();
-      if (/No players found/i.test(errText)) {
-        return { ok: true, hasSession: false, source: "linux-mpris" };
-      }
-      return { ok: false, error: errText || `playerctl exited ${result.code}` };
-    }
-
-    const line = String(result.stdout || "").trim();
-    if (!line) return { ok: true, hasSession: false, source: "linux-mpris" };
-    const [title = "", artist = "", albumTitle = "", appId = "", playbackStatus = ""] = line.split("\t");
-    return {
-      ok: true,
-      hasSession: Boolean(String(title).trim() || String(artist).trim()),
-      source: "linux-mpris",
-      title: String(title || "").trim(),
-      artist: String(artist || "").trim(),
-      albumTitle: String(albumTitle || "").trim(),
-      appId: String(appId || "").trim(),
-      playbackStatus: String(playbackStatus || "").trim()
-    };
-  } catch (error) {
-    return { ok: false, error: String((error && error.message) || error || "playerctl failed") };
   }
 }
 
@@ -727,6 +867,7 @@ async function queryMacMedia() {
 
 async function queryUniversalNowPlaying(state) {
   const now = Date.now();
+  let rpcFallback = null;
   if (state && state.lastRpcActivity && now - Number(state.lastRpcActivityAt || 0) < 180000) {
     const raw = state.lastRpcActivity.raw && typeof state.lastRpcActivity.raw === "object" ? state.lastRpcActivity.raw : {};
     const base = state.lastRpcActivity.normalized && typeof state.lastRpcActivity.normalized === "object"
@@ -741,31 +882,49 @@ async function queryUniversalNowPlaying(state) {
     if (startMs != null && endMs != null && endMs > startMs) {
       base.durationMs = endMs - startMs;
     }
-    return base;
+    if (base && base.ok && base.hasSession) {
+      return base;
+    }
+    rpcFallback = {
+      ok: true,
+      hasSession: false,
+      source: String(base.source || "discord-rpc-pipe"),
+      error: String(base.error || "No active RPC session")
+    };
   }
 
+  let fallback = null;
   if (process.platform === "win32") {
     const tuna = await queryTunaNowPlaying(state);
     if (tuna && tuna.ok && tuna.hasSession) return tuna;
-    return tuna && tuna.ok
+    fallback = tuna && tuna.ok
       ? tuna
       : { ok: false, hasSession: false, source: "windows-now-playing", error: "No active RPC or Tuna session" };
-  }
-  if (process.platform === "linux") {
-    const linux = await queryLinuxMedia();
-    if (linux.ok && linux.hasSession) return linux;
+  } else if (process.platform === "linux") {
     const tuna = await queryTunaNowPlaying(state);
     if (tuna && tuna.ok && tuna.hasSession) return tuna;
-    return linux.ok ? linux : tuna.ok ? tuna : linux;
-  }
-  if (process.platform === "darwin") {
+    fallback = tuna && tuna.ok
+      ? tuna
+      : { ok: false, hasSession: false, source: "linux-now-playing", error: "No active Tuna session" };
+  } else if (process.platform === "darwin") {
     const mac = await queryMacMedia();
     if (mac.ok && mac.hasSession) return mac;
     const tuna = await queryTunaNowPlaying(state);
     if (tuna && tuna.ok && tuna.hasSession) return tuna;
-    return mac.ok ? mac : tuna.ok ? tuna : mac;
+    fallback = mac.ok ? mac : tuna.ok ? tuna : mac;
+  } else {
+    fallback = { ok: false, error: `Unsupported platform: ${process.platform}` };
   }
-  return { ok: false, error: `Unsupported platform: ${process.platform}` };
+
+  const preferredFallback =
+    fallback && fallback.hasSession
+      ? fallback
+      : rpcFallback || fallback;
+
+  if (loadBridgeSettings().nerdModeEnabled && (!preferredFallback || !preferredFallback.hasSession)) {
+    return buildNerdModeNowPlaying();
+  }
+  return preferredFallback;
 }
 
 function formatNowPlayingForLog(np) {
@@ -906,6 +1065,7 @@ async function main() {
 
     const url = new URL(req.url || "/", `http://${HOST}:${PORT}`);
     if (url.pathname === "/health") {
+      const settings = loadBridgeSettings();
       return sendJson(
         res,
         200,
@@ -917,6 +1077,8 @@ async function main() {
           rpcPipesListening: (bridgeState.rpcServers || []).length,
           rpcPipeErrors: (bridgeState.rpcBindErrors || []).length,
           tunaPath: bridgeState.tunaPath,
+          nerdModeEnabled: Boolean(settings.nerdModeEnabled),
+          updateIntervalMs: settings.updateIntervalMs,
           allowlist,
           uptimeSec: Math.floor(process.uptime())
         },

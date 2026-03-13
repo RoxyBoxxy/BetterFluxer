@@ -30,6 +30,13 @@ function createStage(root) {
   copyRecursive(path.join(root, "bridge-nw"), path.join(stageRoot, "bridge-nw"));
   copyRecursive(path.join(root, "scripts"), path.join(stageRoot, "scripts"));
   copyRecursive(path.join(root, "docs"), path.join(stageRoot, "docs"));
+  if (process.execPath && fs.existsSync(process.execPath)) {
+    const stagedNode = path.join(stageRoot, "node");
+    fs.copyFileSync(process.execPath, stagedNode);
+    try {
+      fs.chmodSync(stagedNode, 0o755);
+    } catch (_) {}
+  }
 
   const rootReadme = path.join(root, "README.md");
   if (fs.existsSync(rootReadme)) {

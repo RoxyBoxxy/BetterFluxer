@@ -37,6 +37,9 @@ function main() {
 
   const result = unpatchPreload(paths.preloadPath, paths.backupPreloadPath);
   unpatchMainIpcHandlers(paths.mainIpcHandlersPath, paths.backupMainIpcHandlersPath);
+  if (fs.existsSync(paths.backupAsarPath)) {
+    fs.copyFileSync(paths.backupAsarPath, paths.asarPath);
+  }
   const legacyInjectorPath = path.join(paths.preloadDir, "betterfluxer.injector.js");
   if (fs.existsSync(legacyInjectorPath)) {
     fs.rmSync(legacyInjectorPath, { force: true });

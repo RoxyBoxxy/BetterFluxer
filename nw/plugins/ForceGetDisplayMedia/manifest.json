@@ -1,0 +1,7 @@
+{
+  "name": "ForceGetDisplayMedia",
+  "version": "1.0.0",
+  "description": "Redirects desktop-capture getUserMedia calls to navigator.mediaDevices.getDisplayMedia.",
+  "author": "BetterFluxer",
+  "main": "index.js"
+}

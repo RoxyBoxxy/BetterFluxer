@@ -51,8 +51,10 @@ module.exports = class DiscordRPCEmuPlugin {
     this.bridgeSocket = null;
     this.bridgePort = null;
     this.bridgeReconnectTimer = null;
+    this.bridgeWatchdogTimer = null;
     this.bridgeStarted = false;
     this.bridgeNonce = 0;
+    this.lastBridgeSocketEventAt = 0;
     this.statusSyncEnabled = this.api.storage.get("statusSyncEnabled", true) !== false;
     this.statusPollTimer = null;
     this.lastBridgeActivity = null;
@@ -65,10 +67,14 @@ module.exports = class DiscordRPCEmuPlugin {
     this.localBridgeEnabled = this.api.storage.get("localBridgeEnabled", true) !== false;
     this.localBridgePort = Number.parseInt(String(this.api.storage.get("localBridgePort", "21864")), 10) || 21864;
     this.localBridgeToken = String(this.api.storage.get("localBridgeToken", "") || "");
+    this.statusSyncIntervalMs = Number.parseInt(String(this.api.storage.get("statusSyncIntervalMs", "10000")), 10) || 10000;
     this.lastWindowsMedia = null;
     this.lastWindowsMediaAt = 0;
     this.lastWindowsMediaError = "";
     this.debugDetection = this.api.storage.get("debugDetection", false) === true;
+    this.savedUserCustomStatus = this.normalizeCustomStatusValue(this.api.storage.get("savedUserCustomStatus", null));
+    this.statusSyncOwnsStatus = this.api.storage.get("statusSyncOwnsStatus", false) === true;
+    this.statusMutationDepth = 0;
   }
 
   start() {
@@ -182,9 +188,12 @@ module.exports = class DiscordRPCEmuPlugin {
       }),
       getStatusSyncState: () => ({
         enabled: Boolean(plugin.statusSyncEnabled),
+        intervalMs: plugin.statusSyncIntervalMs,
         lastAppliedStatusText: plugin.lastAppliedStatusText || "",
         lastStatusApplyAt: plugin.lastStatusApplyAt || 0,
         cachedEndpoint: plugin.cachedStatusEndpoint || null,
+        savedUserCustomStatus: plugin.savedUserCustomStatus,
+        statusSyncOwnsStatus: Boolean(plugin.statusSyncOwnsStatus),
         localBridgeEnabled: Boolean(plugin.localBridgeEnabled),
         localBridgePort: plugin.localBridgePort,
         hasRecentWindowsMedia: Boolean(plugin.lastWindowsMedia && Date.now() - plugin.lastWindowsMediaAt < 30000)
@@ -234,6 +243,7 @@ module.exports = class DiscordRPCEmuPlugin {
       description: "Bridge and status sync behavior.",
       controls: [
         { key: "statusSyncEnabled", type: "boolean", label: "Enable status sync", value: this.statusSyncEnabled },
+        { key: "statusSyncIntervalMs", type: "range", label: "Update interval (ms)", min: 1000, max: 60000, step: 1000, value: this.statusSyncIntervalMs },
         { key: "localBridgeEnabled", type: "boolean", label: "Enable local bridge", value: this.localBridgeEnabled },
         { key: "debugDetection", type: "boolean", label: "Enable debug detection logs", value: this.debugDetection },
         { key: "localBridgePort", type: "text", label: "Local bridge port (1024-65535)", value: String(this.localBridgePort) },
@@ -265,6 +275,16 @@ module.exports = class DiscordRPCEmuPlugin {
       if (this.statusSyncEnabled) this.startStatusSync();
       else this.stopStatusSync();
     }
+    if (k === "statusSyncIntervalMs") {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 1000 && n <= 60000) {
+        this.statusSyncIntervalMs = Math.round(n);
+        if (this.statusSyncEnabled) {
+          this.stopStatusSync();
+          this.startStatusSync();
+        }
+      }
+    }
     if (k === "localBridgeEnabled") {
       this.localBridgeEnabled = Boolean(value);
       this.stopBridge();
@@ -286,6 +306,7 @@ module.exports = class DiscordRPCEmuPlugin {
     }
     try {
       this.api.storage.set("statusSyncEnabled", this.statusSyncEnabled);
+      this.api.storage.set("statusSyncIntervalMs", this.statusSyncIntervalMs);
       this.api.storage.set("localBridgeEnabled", this.localBridgeEnabled);
       this.api.storage.set("debugDetection", this.debugDetection);
       this.api.storage.set("localBridgePort", this.localBridgePort);
@@ -293,6 +314,7 @@ module.exports = class DiscordRPCEmuPlugin {
     } catch (_e) {}
     return {
       statusSyncEnabled: this.statusSyncEnabled,
+      statusSyncIntervalMs: this.statusSyncIntervalMs,
       localBridgeEnabled: this.localBridgeEnabled,
       debugDetection: this.debugDetection,
       localBridgePort: this.localBridgePort,
@@ -344,6 +366,7 @@ module.exports = class DiscordRPCEmuPlugin {
       }
 
       if (response && response.ok && bodyJson && typeof bodyJson === "object") {
+        const capturedCustomStatus = plugin.extractCustomStatusFromPayload(bodyJson);
         const hasCustomStatus =
           Object.prototype.hasOwnProperty.call(bodyJson, "custom_status") ||
           (bodyJson.status &&
@@ -356,6 +379,12 @@ module.exports = class DiscordRPCEmuPlugin {
             plugin.api.storage.set("statusSyncEndpoint", plugin.cachedStatusEndpoint);
             plugin.captureStatusEndpointArmed = false;
             plugin.api.logger.info(`DiscordRPCEmu: captured status endpoint ${method} ${url}`);
+          }
+          if (plugin.statusMutationDepth <= 0) {
+            plugin.savedUserCustomStatus = capturedCustomStatus;
+            plugin.api.storage.set("savedUserCustomStatus", capturedCustomStatus);
+            plugin.statusSyncOwnsStatus = false;
+            plugin.api.storage.set("statusSyncOwnsStatus", false);
           }
         }
       }
@@ -376,9 +405,12 @@ module.exports = class DiscordRPCEmuPlugin {
   startStatusSync() {
     if (!this.statusSyncEnabled) return;
     if (this.statusPollTimer) return;
+    const intervalMs = Number.isFinite(Number(this.statusSyncIntervalMs))
+      ? Math.max(1000, Math.min(60000, Math.round(Number(this.statusSyncIntervalMs))))
+      : 10000;
     this.statusPollTimer = setInterval(() => {
       this.applyNowPlayingFromSources().catch(() => {});
-    }, 10000);
+    }, intervalMs);
     this.applyNowPlayingFromSources().catch(() => {});
   }
 
@@ -400,6 +432,102 @@ module.exports = class DiscordRPCEmuPlugin {
       return token.slice(1, -1);
     }
     return token;
+  }
+
+  normalizeCustomStatusValue(value) {
+    if (!value || typeof value !== "object") return null;
+    const text = String(value.text || "").trim();
+    const emojiName = String(value.emoji_name || value.emojiName || "").trim();
+    const emojiId =
+      value.emoji_id != null
+        ? String(value.emoji_id).trim()
+        : value.emojiId != null
+          ? String(value.emojiId).trim()
+          : "";
+    const expiresAt =
+      value.expires_at != null
+        ? String(value.expires_at).trim()
+        : value.expiresAt != null
+          ? String(value.expiresAt).trim()
+          : "";
+    if (!text && !emojiName && !emojiId) return null;
+    const out = {};
+    if (text) out.text = text;
+    if (emojiName) out.emoji_name = emojiName;
+    if (emojiId) out.emoji_id = emojiId;
+    if (expiresAt) out.expires_at = expiresAt;
+    return out;
+  }
+
+  extractCustomStatusFromPayload(payload) {
+    const body = payload && typeof payload === "object" ? payload : null;
+    if (!body) return null;
+    if (Object.prototype.hasOwnProperty.call(body, "custom_status")) {
+      return this.normalizeCustomStatusValue(body.custom_status);
+    }
+    if (body.status && typeof body.status === "object" && Object.prototype.hasOwnProperty.call(body.status, "custom_status")) {
+      return this.normalizeCustomStatusValue(body.status.custom_status);
+    }
+    return null;
+  }
+
+  withPluginStatusMutation(task) {
+    this.statusMutationDepth += 1;
+    return Promise.resolve()
+      .then(task)
+      .finally(() => {
+        this.statusMutationDepth = Math.max(0, this.statusMutationDepth - 1);
+      });
+  }
+
+  async readCurrentFluxerCustomStatus() {
+    const win = this.api.app.getWindow?.();
+    if (!win || typeof win.fetch !== "function") return null;
+    const token = this.getAuthToken();
+    const baseHeaders = { Accept: "application/json" };
+    const headerVariants = [{ ...baseHeaders }];
+    if (token) {
+      headerVariants.push({ ...baseHeaders, Authorization: token });
+      headerVariants.push({ ...baseHeaders, Authorization: `Bearer ${token}` });
+    }
+    const targets = [
+      "/api/v1/users/@me/settings",
+      "/api/v1/users/@me",
+      "/api/v1/users/@me/profile",
+      "https://web.fluxer.app/api/v1/users/@me/settings",
+      "https://web.fluxer.app/api/v1/users/@me",
+      "https://web.fluxer.app/api/v1/users/@me/profile"
+    ];
+    for (const url of targets) {
+      for (const headers of headerVariants) {
+        try {
+          const res = await win.fetch(url, { method: "GET", credentials: "include", headers });
+          if (!res || !res.ok) continue;
+          const payload = await res.json().catch(() => null);
+          const customStatus = this.extractCustomStatusFromPayload(payload);
+          const hasStatusField =
+            Boolean(payload && typeof payload === "object" && Object.prototype.hasOwnProperty.call(payload, "custom_status")) ||
+            Boolean(
+              payload &&
+              payload.status &&
+              typeof payload.status === "object" &&
+              Object.prototype.hasOwnProperty.call(payload.status, "custom_status")
+            );
+          if (customStatus || hasStatusField) {
+            return customStatus;
+          }
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
+  async ensureSavedUserCustomStatus() {
+    if (this.statusSyncOwnsStatus) return this.savedUserCustomStatus;
+    const currentStatus = await this.readCurrentFluxerCustomStatus();
+    this.savedUserCustomStatus = currentStatus;
+    this.api.storage.set("savedUserCustomStatus", currentStatus);
+    return currentStatus;
   }
 
   formatClock(ms) {
@@ -466,13 +594,14 @@ module.exports = class DiscordRPCEmuPlugin {
     if (!m || !m.ok || !m.hasSession) return "";
     const kind = String(m.kind || "").toLowerCase();
     const source = String(m.source || "").toLowerCase();
+    const isNerdMode = source === "nerd-mode" || kind === "system";
     const hasTrackMetadata = Boolean(String(m.title || "").trim() || String(m.artist || "").trim() || String(m.albumTitle || "").trim());
     const hasRpcGameMarkers = kind === "game";
     const hasExplicitGameType =
       (typeof m.activityType === "number" && Number.isFinite(m.activityType) && m.activityType === 0) ||
       (typeof m.activityType === "string" && m.activityType.trim() !== "" && Number(m.activityType) === 0);
     const isGame = hasRpcGameMarkers || (hasExplicitGameType && !hasTrackMetadata);
-    const prefix = isGame ? "🎮 Playing " : "🎵 Listening to ";
+    const prefix = isNerdMode ? "⚙️ " : isGame ? "🎮 Playing " : "🎵 Listening to ";
 
     const name = String(m.name || "").trim();
     const details = String(m.details || "").trim();
@@ -603,12 +732,29 @@ module.exports = class DiscordRPCEmuPlugin {
   async applyNowPlayingFromSources() {
     if (!this.statusSyncEnabled) return false;
     const text = await this.getPreferredNowPlayingText();
-    if (!text) return false;
+    if (!text) {
+      if (!this.statusSyncOwnsStatus && !this.lastAppliedStatusText) return false;
+      const restored = this.savedUserCustomStatus
+        ? await this.restoreFluxerCustomStatus(this.savedUserCustomStatus)
+        : await this.clearFluxerCustomStatus();
+      if (restored) {
+        this.lastAppliedStatusText = "";
+        this.lastStatusApplyAt = Date.now();
+        this.statusSyncOwnsStatus = false;
+        this.api.storage.set("statusSyncOwnsStatus", false);
+      }
+      return restored;
+    }
     if (text === this.lastAppliedStatusText) return true;
+    if (!this.statusSyncOwnsStatus) {
+      await this.ensureSavedUserCustomStatus();
+    }
     const ok = await this.setFluxerCustomStatus(text);
     if (ok) {
       this.lastAppliedStatusText = text;
       this.lastStatusApplyAt = Date.now();
+      this.statusSyncOwnsStatus = true;
+      this.api.storage.set("statusSyncOwnsStatus", true);
     }
     return ok;
   }
@@ -675,16 +821,154 @@ module.exports = class DiscordRPCEmuPlugin {
       seen.add(key);
       for (const headers of headerVariants) {
         try {
-          const res = await win.fetch(def.url, {
+          const res = await this.withPluginStatusMutation(() => win.fetch(def.url, {
             method: def.method,
             credentials: "include",
             headers,
             body: JSON.stringify(def.body || {})
-          });
+          }));
           if (!res) continue;
           if (res.ok) {
             this.cachedStatusEndpoint = { method: def.method, url: def.url, body: def.body };
             this.api.storage.set("statusSyncEndpoint", this.cachedStatusEndpoint);
+            return true;
+          }
+        } catch (_) {}
+      }
+    }
+    return false;
+  }
+
+  async clearFluxerCustomStatus() {
+    const win = this.api.app.getWindow?.();
+    if (!win || typeof win.fetch !== "function") return false;
+    const token = this.getAuthToken();
+    const baseHeaders = {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    };
+    const headerVariants = [];
+    headerVariants.push({ ...baseHeaders });
+    if (token) {
+      headerVariants.push({ ...baseHeaders, Authorization: token });
+      headerVariants.push({ ...baseHeaders, Authorization: `Bearer ${token}` });
+    }
+
+    const requestDefs = [];
+    if (this.cachedStatusEndpoint && this.cachedStatusEndpoint.url && this.cachedStatusEndpoint.method) {
+      const cachedBody = this.cachedStatusEndpoint.body && typeof this.cachedStatusEndpoint.body === "object"
+        ? JSON.parse(JSON.stringify(this.cachedStatusEndpoint.body))
+        : {};
+      if (cachedBody.custom_status && typeof cachedBody.custom_status === "object") {
+        cachedBody.custom_status = null;
+      } else if (cachedBody.status && typeof cachedBody.status === "object") {
+        cachedBody.status.custom_status = null;
+      } else {
+        cachedBody.custom_status = null;
+      }
+      requestDefs.push({
+        method: this.cachedStatusEndpoint.method,
+        url: this.cachedStatusEndpoint.url,
+        body: cachedBody
+      });
+    }
+    requestDefs.push(
+      { method: "PATCH", url: "/api/v1/users/@me/settings", body: { custom_status: null } },
+      { method: "PATCH", url: "/api/v1/users/@me", body: { custom_status: null } },
+      { method: "PATCH", url: "/api/v1/users/@me/profile", body: { custom_status: null } },
+      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/settings", body: { custom_status: null } },
+      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me", body: { custom_status: null } },
+      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/profile", body: { custom_status: null } },
+      { method: "PATCH", url: "/api/v1/users/@me/settings", body: { status: { custom_status: null } } }
+    );
+
+    const seen = new Set();
+    for (const def of requestDefs) {
+      if (!def || !def.url || !def.method) continue;
+      const key = `${def.method}|${def.url}|${JSON.stringify(def.body || {})}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const headers of headerVariants) {
+        try {
+          const res = await this.withPluginStatusMutation(() => win.fetch(def.url, {
+            method: def.method,
+            credentials: "include",
+            headers,
+            body: JSON.stringify(def.body || {})
+          }));
+          if (res && res.ok) {
+            return true;
+          }
+        } catch (_) {}
+      }
+    }
+    return false;
+  }
+
+  async restoreFluxerCustomStatus(customStatus) {
+    const restored = this.normalizeCustomStatusValue(customStatus);
+    if (!restored) return this.clearFluxerCustomStatus();
+    const win = this.api.app.getWindow?.();
+    if (!win || typeof win.fetch !== "function") return false;
+    const token = this.getAuthToken();
+    const baseHeaders = {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    };
+    const headerVariants = [{ ...baseHeaders }];
+    if (token) {
+      headerVariants.push({ ...baseHeaders, Authorization: token });
+      headerVariants.push({ ...baseHeaders, Authorization: `Bearer ${token}` });
+    }
+
+    const applyCustomStatus = (body, value) => {
+      const input = body && typeof body === "object" ? JSON.parse(JSON.stringify(body)) : {};
+      const out = input && typeof input === "object" ? input : {};
+      if (Object.prototype.hasOwnProperty.call(out, "custom_status")) {
+        out.custom_status = value;
+        return out;
+      }
+      if (out.status && typeof out.status === "object") {
+        out.status.custom_status = value;
+        return out;
+      }
+      out.custom_status = value;
+      return out;
+    };
+
+    const requestDefs = [];
+    if (this.cachedStatusEndpoint && this.cachedStatusEndpoint.url && this.cachedStatusEndpoint.method) {
+      requestDefs.push({
+        method: this.cachedStatusEndpoint.method,
+        url: this.cachedStatusEndpoint.url,
+        body: applyCustomStatus(this.cachedStatusEndpoint.body, restored)
+      });
+    }
+    requestDefs.push(
+      { method: "PATCH", url: "/api/v1/users/@me/settings", body: { custom_status: restored } },
+      { method: "PATCH", url: "/api/v1/users/@me", body: { custom_status: restored } },
+      { method: "PATCH", url: "/api/v1/users/@me/profile", body: { custom_status: restored } },
+      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/settings", body: { custom_status: restored } },
+      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me", body: { custom_status: restored } },
+      { method: "PATCH", url: "https://web.fluxer.app/api/v1/users/@me/profile", body: { custom_status: restored } },
+      { method: "PATCH", url: "/api/v1/users/@me/settings", body: { status: { custom_status: restored } } }
+    );
+
+    const seen = new Set();
+    for (const def of requestDefs) {
+      if (!def || !def.url || !def.method) continue;
+      const key = `${def.method}|${def.url}|${JSON.stringify(def.body || {})}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const headers of headerVariants) {
+        try {
+          const res = await this.withPluginStatusMutation(() => win.fetch(def.url, {
+            method: def.method,
+            credentials: "include",
+            headers,
+            body: JSON.stringify(def.body || {})
+          }));
+          if (res && res.ok) {
             return true;
           }
         } catch (_) {}
@@ -707,6 +991,8 @@ module.exports = class DiscordRPCEmuPlugin {
       lastAppliedStatusText: this.lastAppliedStatusText || "",
       lastStatusApplyAt: this.lastStatusApplyAt || 0,
       cachedEndpoint: this.cachedStatusEndpoint || null,
+      savedUserCustomStatus: this.savedUserCustomStatus,
+      statusSyncOwnsStatus: Boolean(this.statusSyncOwnsStatus),
       hasRecentBridgeActivity: Boolean(this.lastBridgeActivity && Date.now() - this.lastBridgeActivityAt < 120000),
       captureArmed: Boolean(this.captureStatusEndpointArmed)
     };
@@ -810,6 +1096,7 @@ module.exports = class DiscordRPCEmuPlugin {
 
   startBridge() {
     this.bridgeStarted = true;
+    this.startBridgeWatchdog();
     this.connectBridge();
   }
 
@@ -819,6 +1106,10 @@ module.exports = class DiscordRPCEmuPlugin {
       clearTimeout(this.bridgeReconnectTimer);
       this.bridgeReconnectTimer = null;
     }
+    if (this.bridgeWatchdogTimer) {
+      clearInterval(this.bridgeWatchdogTimer);
+      this.bridgeWatchdogTimer = null;
+    }
     if (this.bridgeSocket) {
       try {
         this.bridgeSocket.close();
@@ -826,6 +1117,26 @@ module.exports = class DiscordRPCEmuPlugin {
       this.bridgeSocket = null;
     }
     this.bridgePort = null;
+    this.lastBridgeSocketEventAt = 0;
+  }
+
+  startBridgeWatchdog() {
+    if (this.bridgeWatchdogTimer) return;
+    this.bridgeWatchdogTimer = setInterval(() => {
+      if (!this.bridgeStarted) return;
+      const ws = this.bridgeSocket;
+      if (!ws || ws.readyState !== 1) return;
+      const lastEventAt = Number(this.lastBridgeSocketEventAt || 0);
+      if (!lastEventAt) return;
+      if (Date.now() - lastEventAt < 90000) return;
+      this.api.logger.warn("DiscordRPCEmu: Discord RPC bridge went stale, reconnecting.");
+      try {
+        ws.close();
+      } catch (_) {
+        this.bridgeSocket = null;
+      }
+      this.scheduleBridgeReconnect(1000);
+    }, 15000);
   }
 
   scheduleBridgeReconnect(delayMs) {
@@ -920,6 +1231,7 @@ module.exports = class DiscordRPCEmuPlugin {
         settled = true;
         this.bridgeSocket = ws;
         this.bridgePort = candidate.port;
+        this.lastBridgeSocketEventAt = Date.now();
         this.api.logger.info(`DiscordRPCEmu: connected Discord RPC bridge on port ${candidate.port}`);
         try {
           ws.send(
@@ -935,6 +1247,7 @@ module.exports = class DiscordRPCEmuPlugin {
 
       ws.addEventListener("message", (event) => {
         try {
+          this.lastBridgeSocketEventAt = Date.now();
           const raw = typeof event.data === "string" ? event.data : "";
           if (!raw) return;
           const msg = JSON.parse(raw);
@@ -956,6 +1269,7 @@ module.exports = class DiscordRPCEmuPlugin {
           this.bridgeSocket = null;
           this.bridgePort = null;
         }
+        this.lastBridgeSocketEventAt = 0;
         this.scheduleBridgeReconnect(5000);
       });
 
