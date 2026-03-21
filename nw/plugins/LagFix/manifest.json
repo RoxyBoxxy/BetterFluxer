@@ -1,0 +1,7 @@
+{
+  "name": "LagFix",
+  "version": "1.0.0",
+  "description": "A fix to Fluxer's laggy interface",
+  "author": "a#1111",
+  "main": "index.js"
+}
